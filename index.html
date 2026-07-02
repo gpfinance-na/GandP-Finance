@@ -99,7 +99,7 @@
 // =====================================================
 // SUPABASE CLIENT
 // =====================================================
-const SUPABASE_URL = 'https://ockgaeriotbczxavyeyn.supabase.co';
+const SUPABASE_URL = 'https://ockgaeriotbczxavyeyn.db.co';
 const SUPABASE_KEY = 'sb_publishable_sAK3POeuE2Yyx3uEHBStBw_btNjQCV4';
 const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
   auth: { persistSession: true, autoRefreshToken: true }
@@ -144,6 +144,30 @@ let state = {
   bulkSelection: { loans: new Set() },
   charts: {}
 };
+
+// =====================================================
+// REFERENCE NUMBER DISPLAY HELPERS (must load before renders)
+// =====================================================
+function loanRef(loan) {
+  if (!loan) return '';
+  return loan.refNo || (loan.id ? loan.id.substring(0, 8) : '');
+}
+function clientRef(client) {
+  if (!client) return '';
+  return client.refNo || (client.id ? client.id.substring(0, 8) : '');
+}
+function paymentRef(payment) {
+  if (!payment) return '';
+  return payment.refNo || (payment.id ? payment.id.substring(0, 8) : '');
+}
+function loanRefById(loanId) {
+  const l = state.loans.find(x => x.id === loanId);
+  return loanRef(l);
+}
+function clientRefById(clientId) {
+  const c = state.clients.find(x => x.id === clientId);
+  return clientRef(c);
+}
 
 // =====================================================
 // DATA LOADING (from Supabase)
