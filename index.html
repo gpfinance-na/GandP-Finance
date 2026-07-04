@@ -778,6 +778,10 @@ function render() {
   else if (v === 'audit') c.innerHTML = renderAudit();
   else if (v === 'data') c.innerHTML = renderDataManagement();
   else if (v === 'settings') c.innerHTML = renderSettings();
+  // Init lender signature pad when on the Signature settings tab
+  if (v === 'settings' && state.currentSettingsTab === 'signature') {
+    setTimeout(() => initLenderSignaturePad(), 50);
+  }
   // Update mobile view title
   const titleEl = document.getElementById('mobile-view-title');
   if (titleEl) {
@@ -1212,10 +1216,12 @@ function openLoanDetail(loanId) {
                     <svg class="w-5 h-5 text-green-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
                     <span class="font-semibold text-green-900">Agreement Signed Electronically</span>
                   </div>
-                  <div class="text-xs text-green-800 mt-1">Signed by ${escapeHtml(loan.signatureData?.name || client?.fullName || '—')} on ${fmtDateTime(loan.signedAt)}</div>
+                  <div class="text-xs text-green-800 mt-1">Borrower: ${escapeHtml(loan.signatureData?.name || client?.fullName || '—')} on ${fmtDateTime(loan.signedAt)}</div>
+                  ${loan.lenderSignedAt ? `<div class="text-xs text-green-800 mt-1">Lender: ${escapeHtml(loan.lenderSignatureData?.signed_by_name || '—')} on ${fmtDateTime(loan.lenderSignedAt)} <span class="text-slate-500">(${loan.lenderSignatureData?.method === 'auto' ? 'auto-applied' : 'manual'})</span></div>` : `<div class="text-xs text-amber-700 mt-1">⚠ Lender countersignature not applied yet</div>`}
                 </div>
                 <div class="flex gap-2 flex-wrap">
                   <button onclick="viewSignatureDetails('${loan.id}')" class="text-xs bg-white text-green-800 hover:bg-green-100 border border-green-300 px-3 py-1.5 rounded font-medium">View Signature</button>
+                  ${!loan.lenderSignedAt ? `<button onclick="applyLenderSignature('${loan.id}')" class="text-xs bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded font-medium">Apply Lender Signature</button>` : ''}
                   <button onclick="downloadLoanAgreement('${loan.id}')" class="text-xs bg-green-700 hover:bg-green-800 text-white px-3 py-1.5 rounded font-medium">Download Signed PDF</button>
                   ${client?.phone ? `<button onclick="sendSignedAgreementWhatsApp('${loan.id}')" class="text-xs bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded font-medium">Send to Client via WhatsApp</button>` : ''}
                 </div>
@@ -2557,6 +2563,24 @@ function generateLoanAgreement(loanId) {
     }
   }
 
+  // ---- EMBED LENDER SIGNATURE if countersigned ----
+  if (loan.lenderSignedAt && loan.lenderSignatureData && loan.lenderSignatureData.signature_image) {
+    try {
+      const sigW = colW - 4;
+      const sigH = sigBoxHeight;
+      doc.addImage(
+        loan.lenderSignatureData.signature_image,
+        'PNG',
+        margin + colW + 20 + 2,
+        sigLineY - sigH,
+        sigW,
+        sigH
+      );
+    } catch (e) {
+      console.warn('Lender signature image embed failed:', e);
+    }
+  }
+
   // Signed at / on details - fill in for borrower if signed
   doc.setFontSize(8);
   const signedDate = loan.signedAt ? new Date(loan.signedAt) : null;
@@ -2569,8 +2593,15 @@ function generateLoanAgreement(loanId) {
     doc.text(`ID Number: ${loan.signatureData.id_number}`, margin, sigLineY + 12);
   }
 
-  doc.text('Signed at _____________________ on ___________', margin + colW + 20, sigLineY + 4);
-  doc.text('For and on behalf of the Lender', margin + colW + 20, sigLineY + 8);
+  // Lender side - fill in if countersigned
+  const lenderDate = loan.lenderSignedAt ? new Date(loan.lenderSignedAt) : null;
+  const lenderDateStr = lenderDate ? lenderDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '___________';
+  const lenderLocStr = loan.lenderSignedAt ? 'Electronically' : '_____________________';
+  doc.text(`Signed at ${lenderLocStr} on ${lenderDateStr}`, margin + colW + 20, sigLineY + 4);
+  doc.text(`For and on behalf of the Lender`, margin + colW + 20, sigLineY + 8);
+  if (loan.lenderSignedAt && loan.lenderSignatureData?.signed_by_name) {
+    doc.text(`Signed by: ${loan.lenderSignatureData.signed_by_name}`, margin + colW + 20, sigLineY + 12);
+  }
 
   // ---- Compact electronic signature note (below signature block) if signed ----
   if (loan.signedAt) {
@@ -2579,7 +2610,12 @@ function generateLoanAgreement(loanId) {
     doc.line(margin, noteY, pageW - margin, noteY); noteY += 3;
 
     doc.setFontSize(7).setFont('helvetica', 'italic').setTextColor(80);
-    doc.text(`Electronically signed on ${signedDate.toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}. Signed by: ${loan.signatureData?.name || client?.fullName || ''}${loan.signatureData?.id_number ? ' · ID: ' + loan.signatureData.id_number : ''}. Legally binding under the Electronic Transactions Act, 4 of 2019 (Namibia).`, margin, noteY, { maxWidth: pageW - margin*2 });
+    let noteText = `Electronically signed on ${signedDate.toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}. Borrower: ${loan.signatureData?.name || client?.fullName || ''}${loan.signatureData?.id_number ? ' · ID: ' + loan.signatureData.id_number : ''}.`;
+    if (loan.lenderSignedAt) {
+      noteText += ` Lender countersigned by ${loan.lenderSignatureData.signed_by_name} on ${new Date(loan.lenderSignedAt).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}.`;
+    }
+    noteText += ` Legally binding under the Electronic Transactions Act, 4 of 2019 (Namibia).`;
+    doc.text(noteText, margin, noteY, { maxWidth: pageW - margin*2 });
     doc.setTextColor(0);
   }
 
@@ -2929,23 +2965,75 @@ function renderSettings() {
   const tabs = [
     { id: 'company', label: 'Company' },
     { id: 'products', label: 'Loan Products' },
-    { id: 'penalty', label: 'Late Penalties' }
+    { id: 'penalty', label: 'Late Penalties' },
+    { id: 'signature', label: 'My Signature' }
   ];
   let body = '';
   if (tab === 'company') body = renderSettingsCompany();
   else if (tab === 'products') body = renderSettingsProducts();
   else if (tab === 'penalty') body = renderSettingsPenalty();
+  else if (tab === 'signature') body = renderSettingsSignature();
   return `
     <div class="mb-6">
       <h1 class="text-2xl font-bold text-slate-900">Settings</h1>
-      <p class="text-slate-500 text-sm mt-1">Configure company details, loan products, and late penalties</p>
+      <p class="text-slate-500 text-sm mt-1">Configure company details, loan products, late penalties, and your electronic signature</p>
     </div>
     <div class="border-b border-slate-200 mb-6">
-      <div class="flex gap-6">
+      <div class="flex gap-6 flex-wrap">
         ${tabs.map(t => `<button onclick="state.currentSettingsTab='${t.id}'; render();" class="py-3 px-1 text-sm ${tab===t.id?'tab-active':'tab-inactive'}">${t.label}</button>`).join('')}
       </div>
     </div>
     ${body}
+  `;
+}
+
+function renderSettingsSignature() {
+  const currentUser = state.currentUser;
+  const userProfile = state.users.find(u => u.id === currentUser?.id);
+  const hasSignature = !!userProfile?.signatureImage;
+  return `
+    <div class="max-w-2xl">
+      <div class="card p-5 mb-4">
+        <h2 class="font-semibold text-slate-900 mb-2">Your Electronic Signature</h2>
+        <p class="text-sm text-slate-600 mb-4">
+          Draw your signature below. It will be automatically applied to every loan agreement as the lender's countersignature when a client signs. Every application is timestamped and logged in the audit trail.
+        </p>
+        ${hasSignature ? `
+          <div class="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
+            <div class="text-xs text-green-800 mb-2 font-medium">✓ Current Signature (last updated ${fmtDateTime(userProfile.signatureUpdatedAt)})</div>
+            <div class="bg-white border border-slate-200 rounded p-3 inline-block">
+              <img src="${userProfile.signatureImage}" style="max-height:80px; max-width:400px;">
+            </div>
+          </div>
+        ` : `
+          <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-xs text-amber-900">
+            No signature saved yet. Loans that clients sign electronically will show a blank lender signature line until you save yours here.
+          </div>
+        `}
+        <div class="mb-3">
+          <label class="text-sm font-medium">${hasSignature ? 'Redraw Signature' : 'Draw Your Signature'}</label>
+          <div class="text-xs text-slate-500 mb-2">Use your mouse (desktop) or finger (tablet/phone) to sign in the box.</div>
+          <canvas id="lender-signature-pad" width="500" height="180" style="width:100%; height:180px; max-width:500px; border:2px dashed #cbd5e1; border-radius:8px; touch-action:none; background:white;"></canvas>
+        </div>
+        <div class="flex gap-2 flex-wrap">
+          <button onclick="clearLenderSignature()" class="btn-secondary text-sm">Clear</button>
+          <button onclick="saveLenderSignature()" class="btn-primary text-sm">Save Signature</button>
+          ${hasSignature ? `<button onclick="removeLenderSignature()" class="text-sm text-red-600 hover:underline">Remove Signature</button>` : ''}
+        </div>
+      </div>
+
+      <div class="card p-4 bg-blue-50 border-blue-200">
+        <h3 class="font-semibold text-sm text-blue-900 mb-2">How this works</h3>
+        <ul class="text-xs text-blue-900 space-y-1 list-disc list-inside">
+          <li>Save your signature once — it will be reused on every subsequent loan agreement</li>
+          <li>When a client signs an agreement, the system automatically applies the default lender signature</li>
+          <li>Each application records: date, time, loan reference, and which staff member's signature was used</li>
+          <li>The signature appears on the "For and on behalf of the Lender" line of the PDF agreement</li>
+          <li>Only one signature is used as the default per organization (the first Administrator's signature)</li>
+          <li>Loans signed before you save your signature can be countersigned retroactively from the loan detail page</li>
+        </ul>
+      </div>
+    </div>
   `;
 }
 
@@ -4528,6 +4616,128 @@ function clearSignature() {
   window._sigHasStrokes = false;
 }
 
+// =====================================================
+// LENDER SIGNATURE (stored per staff user)
+// =====================================================
+function initLenderSignaturePad() {
+  const canvas = document.getElementById('lender-signature-pad');
+  if (!canvas) return;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * 2;
+  canvas.height = rect.height * 2;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(2, 2);
+  ctx.strokeStyle = '#0f172a';
+  ctx.lineWidth = 2;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  let drawing = false;
+  let lastX, lastY;
+  window._lenderSigHasStrokes = false;
+
+  function getPos(e) {
+    const r = canvas.getBoundingClientRect();
+    const touch = e.touches ? e.touches[0] : e;
+    return { x: touch.clientX - r.left, y: touch.clientY - r.top };
+  }
+  function start(e) {
+    e.preventDefault();
+    drawing = true;
+    const p = getPos(e);
+    lastX = p.x; lastY = p.y;
+    window._lenderSigHasStrokes = true;
+  }
+  function move(e) {
+    if (!drawing) return;
+    e.preventDefault();
+    const p = getPos(e);
+    ctx.beginPath();
+    ctx.moveTo(lastX, lastY);
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+    lastX = p.x; lastY = p.y;
+  }
+  function stop() { drawing = false; }
+  canvas.addEventListener('mousedown', start);
+  canvas.addEventListener('mousemove', move);
+  canvas.addEventListener('mouseup', stop);
+  canvas.addEventListener('mouseleave', stop);
+  canvas.addEventListener('touchstart', start);
+  canvas.addEventListener('touchmove', move);
+  canvas.addEventListener('touchend', stop);
+}
+
+function clearLenderSignature() {
+  const canvas = document.getElementById('lender-signature-pad');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  window._lenderSigHasStrokes = false;
+}
+
+async function saveLenderSignature() {
+  if (!window._lenderSigHasStrokes) { showAlert('Please draw your signature first.'); return; }
+  const canvas = document.getElementById('lender-signature-pad');
+  const signatureImage = canvas.toDataURL('image/png');
+  const now = new Date().toISOString();
+  const { error } = await db.from('profiles').update({
+    signature_image: signatureImage,
+    signature_updated_at: now
+  }).eq('id', state.currentUser.id);
+  if (error) { showAlert('Save failed: ' + error.message); return; }
+  await logAudit('save', 'signature', state.currentUser.id, { action: 'stored_signature' });
+  await saveTable('users');
+  showAlert('Signature saved. It will be applied automatically to future signed loans.', 'Saved');
+  render();
+}
+
+async function removeLenderSignature() {
+  confirmAction('Remove your stored signature? Future client signings will show a blank lender signature line until you set a new one.', async () => {
+    const { error } = await db.from('profiles').update({
+      signature_image: null,
+      signature_updated_at: null
+    }).eq('id', state.currentUser.id);
+    if (error) { showAlert('Remove failed: ' + error.message); return; }
+    await logAudit('remove', 'signature', state.currentUser.id, {});
+    await saveTable('users');
+    render();
+  });
+}
+
+// =====================================================
+// LENDER COUNTERSIGN (applies stored signature to a signed loan)
+// =====================================================
+async function applyLenderSignature(loanId) {
+  const loan = state.loans.find(l => l.id === loanId);
+  if (!loan) return;
+  if (!loan.signedAt) { showAlert('Client has not signed this loan yet.'); return; }
+  if (loan.lenderSignedAt) { showAlert('Lender signature already applied.'); return; }
+
+  const userProfile = state.users.find(u => u.id === state.currentUser.id);
+  if (!userProfile?.signatureImage) {
+    showAlert('You have not saved your signature yet. Go to Settings → My Signature to save it first.', 'No Signature');
+    return;
+  }
+  const now = new Date().toISOString();
+  const lenderSigData = {
+    signature_image: userProfile.signatureImage,
+    signed_by_user_id: state.currentUser.id,
+    signed_by_name: state.currentUser.fullName,
+    timestamp: now,
+    method: 'manual'
+  };
+  const { error } = await db.from('loans').update({
+    lender_signed_at: now,
+    lender_signature_data: lenderSigData
+  }).eq('id', loanId);
+  if (error) { showAlert('Countersign failed: ' + error.message); return; }
+  await logAudit('countersign', 'loan', loanId, { method: 'manual', signedBy: state.currentUser.fullName });
+  await saveTable('loans');
+  closeModal();
+  openLoanDetail(loanId);
+  showAlert('Lender signature applied. The agreement is now fully signed.', 'Countersigned');
+}
+
 async function submitSignature(token, loanId) {
   const name = document.getElementById('sig-name').value.trim();
   const idNumber = document.getElementById('sig-id').value.trim();
@@ -4540,20 +4750,44 @@ async function submitSignature(token, loanId) {
 
   const canvas = document.getElementById('signature-pad');
   const signatureImage = canvas.toDataURL('image/png');
+  const now = new Date().toISOString();
   const signatureData = {
     name, id_number: idNumber,
     signature_image: signatureImage,
-    timestamp: new Date().toISOString(),
+    timestamp: now,
     user_agent: navigator.userAgent,
     terms_accepted: true
   };
+
+  // Try to fetch the default lender signature and auto-apply it
+  let lenderSignatureData = null;
   try {
-    const { error: upErr } = await db.from('loans').update({
-      signed_at: new Date().toISOString(),
+    const { data: lenderData } = await db.rpc('get_default_lender_signature');
+    if (lenderData && lenderData.length > 0 && lenderData[0].signature_image) {
+      lenderSignatureData = {
+        signature_image: lenderData[0].signature_image,
+        signed_by_user_id: lenderData[0].user_id,
+        signed_by_name: lenderData[0].full_name,
+        timestamp: now,
+        method: 'auto'
+      };
+    }
+  } catch (e) {
+    console.warn('Could not fetch lender signature:', e);
+  }
+
+  try {
+    const updates = {
+      signed_at: now,
       signature_data: signatureData
-    }).eq('id', loanId);
+    };
+    if (lenderSignatureData) {
+      updates.lender_signed_at = now;
+      updates.lender_signature_data = lenderSignatureData;
+    }
+    const { error: upErr } = await db.from('loans').update(updates).eq('id', loanId);
     if (upErr) throw upErr;
-    await db.from('client_links').update({ completed_at: new Date().toISOString() }).eq('token', token);
+    await db.from('client_links').update({ completed_at: now }).eq('token', token);
     document.getElementById('public-container').innerHTML = `
       <div class="max-w-md mx-auto text-center py-12">
         <div class="w-16 h-16 bg-green-100 rounded-full mx-auto flex items-center justify-center mb-4">
