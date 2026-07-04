@@ -1,8 +1,6 @@
-// G & P Finance Service Worker
-const CACHE_NAME = 'gp-finance-v1';
+// G & P Finance Service Worker v2 (network-first for HTML, cache-first for assets)
+const CACHE_NAME = 'gp-finance-v2';
 const APP_SHELL = [
-  './',
-  './index.html',
   './manifest.json',
   'https://cdn.tailwindcss.com',
   'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2',
@@ -11,7 +9,6 @@ const APP_SHELL = [
   'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js'
 ];
 
-// Install: cache app shell
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => cache.addAll(APP_SHELL).catch(err => console.warn('Cache warning:', err)))
@@ -19,7 +16,6 @@ self.addEventListener('install', event => {
   self.skipWaiting();
 });
 
-// Activate: remove old caches
 self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))))
@@ -27,24 +23,66 @@ self.addEventListener('activate', event => {
   self.clients.claim();
 });
 
-// Fetch: cache-first for app shell, network-first for Supabase API
 self.addEventListener('fetch', event => {
   const url = event.request.url;
-  // Don't cache Supabase API calls or other API calls - always fresh
+  const req = event.request;
+
   if (url.includes('supabase.co') || url.includes('/rest/') || url.includes('/auth/') || url.includes('/storage/')) {
-    return; // Let the browser handle it normally
+    return;
   }
-  event.respondWith(
-    caches.match(event.request).then(cached => {
-      if (cached) return cached;
-      return fetch(event.request).then(response => {
-        // Only cache successful responses
-        if (response && response.status === 200 && event.request.method === 'GET') {
+
+  if (req.method !== 'GET') return;
+
+  const isHtmlRequest = req.destination === 'document' ||
+                        url.endsWith('/') ||
+                        url.endsWith('/index.html') ||
+                        url.endsWith('/GandP-Finance/') ||
+                        url.endsWith('/GandP-Finance/index.html');
+
+  if (isHtmlRequest) {
+    event.respondWith(
+      fetch(req).then(response => {
+        if (response && response.status === 200) {
           const clone = response.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone).catch(() => {}));
+          caches.open(CACHE_NAME).then(cache => {
+            cache.match(req).then(cached => {
+              if (cached) {
+                Promise.all([cached.text(), clone.clone().text()]).then(([oldText, newText]) => {
+                  if (oldText !== newText) {
+                    self.clients.matchAll().then(clients => {
+                      clients.forEach(client => client.postMessage({ type: 'UPDATE_AVAILABLE' }));
+                    });
+                  }
+                });
+              }
+              cache.put(req, clone).catch(() => {});
+            });
+          });
+        }
+        return response;
+      }).catch(() => {
+        return caches.match(req);
+      })
+    );
+    return;
+  }
+
+  event.respondWith(
+    caches.match(req).then(cached => {
+      if (cached) return cached;
+      return fetch(req).then(response => {
+        if (response && response.status === 200) {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(req, clone).catch(() => {}));
         }
         return response;
       }).catch(() => cached);
     })
   );
+});
+
+self.addEventListener('message', event => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
 });

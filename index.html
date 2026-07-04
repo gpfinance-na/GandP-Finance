@@ -5469,9 +5469,18 @@ function showKycWarningForClient(clientId) {
 (async function init() {
   // Register service worker for PWA
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js').catch(err => console.warn('SW registration failed:', err));
+    navigator.serviceWorker.register('sw.js').then(reg => {
+      // Listen for updates from the service worker
+      navigator.serviceWorker.addEventListener('message', event => {
+        if (event.data && event.data.type === 'UPDATE_AVAILABLE') {
+          showUpdateBanner();
+        }
+      });
+      // Also check for an update every time the app loads
+      reg.update().catch(() => {});
+    }).catch(err => console.warn('SW registration failed:', err));
   }
-  // Check for public client-facing routes (upload / signature) - no auth needed
+  // Check for public client-facing routes (upload / signature / agreement) - no auth needed
   if (checkPublicRoute()) return;
   // Normal staff auth flow
   const sessionRestored = await restoreSession();
@@ -5480,6 +5489,38 @@ function showKycWarningForClient(clientId) {
   }
   renderApp();
 })();
+
+function showUpdateBanner() {
+  // Avoid stacking multiple banners
+  if (document.getElementById('update-banner')) return;
+  const banner = document.createElement('div');
+  banner.id = 'update-banner';
+  banner.style.cssText = 'position:fixed; top:0; left:0; right:0; z-index:9999; background:#1e40af; color:white; padding:12px 16px; display:flex; justify-content:space-between; align-items:center; box-shadow:0 2px 8px rgba(0,0,0,0.15); font-size:14px;';
+  banner.innerHTML = `
+    <div style="flex:1;">
+      <strong>New version available.</strong>
+      <span style="opacity:0.9; margin-left:6px;">Refresh to load the latest features.</span>
+    </div>
+    <div style="display:flex; gap:8px;">
+      <button onclick="applyUpdate()" style="background:white; color:#1e40af; border:none; padding:6px 14px; border-radius:6px; font-weight:600; cursor:pointer; font-size:14px;">Refresh</button>
+      <button onclick="dismissUpdateBanner()" style="background:transparent; color:white; border:1px solid rgba(255,255,255,0.4); padding:6px 12px; border-radius:6px; cursor:pointer; font-size:14px;">Later</button>
+    </div>
+  `;
+  document.body.appendChild(banner);
+}
+
+function applyUpdate() {
+  // Tell the SW to activate immediately, then reload
+  if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+    navigator.serviceWorker.controller.postMessage({ type: 'SKIP_WAITING' });
+  }
+  setTimeout(() => window.location.reload(), 150);
+}
+
+function dismissUpdateBanner() {
+  const b = document.getElementById('update-banner');
+  if (b) b.remove();
+}
 </script>
 </body>
 </html>
