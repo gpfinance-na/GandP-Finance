@@ -2520,7 +2520,7 @@ function generateLoanAgreement(loanId) {
   }
 
   // ---- ACKNOWLEDGMENT & SIGNATURES ----
-  if (y > 220) { doc.addPage(); y = 20; }
+  if (y > 210) { doc.addPage(); y = 20; }
   y += 6;
   doc.setFontSize(11).setFont('helvetica', 'bold');
   doc.text('6. ACKNOWLEDGMENT', margin, y); y += 5;
@@ -2531,14 +2531,69 @@ function generateLoanAgreement(loanId) {
 
   const sigY = y;
   const colW = (pageW - margin*2 - 20) / 2;
+  const sigLineY = sigY + 22;  // Y coordinate of the signature line
+  const sigBoxHeight = 20;      // Space above the line for signature image
+
+  // Draw signature lines
   doc.setDrawColor(0).setLineWidth(0.3);
-  doc.line(margin, sigY + 12, margin + colW, sigY + 12);
-  doc.line(margin + colW + 20, sigY + 12, margin + colW + 20 + colW, sigY + 12);
+  doc.line(margin, sigLineY, margin + colW, sigLineY);
+  doc.line(margin + colW + 20, sigLineY, margin + colW + 20 + colW, sigLineY);
+
+  // ---- EMBED BORROWER SIGNATURE if loan is signed ----
+  if (loan.signedAt && loan.signatureData && loan.signatureData.signature_image) {
+    try {
+      // Place signature image above the line, centered in the borrower's column
+      // Signature image is roughly 500x200 aspect ratio (2.5:1); scale to fit box
+      const sigW = colW - 4;
+      const sigH = sigBoxHeight;
+      doc.addImage(
+        loan.signatureData.signature_image,
+        'PNG',
+        margin + 2,
+        sigLineY - sigH,
+        sigW,
+        sigH
+      );
+    } catch (e) {
+      console.warn('Signature image embed failed:', e);
+    }
+  }
+
+  // Signed at / on details - fill in for borrower if signed
   doc.setFontSize(9);
-  doc.text('Signed at _____________________ on ___________', margin, sigY + 18);
-  doc.text(`Borrower: ${client?.fullName || ''}`, margin, sigY + 22);
-  doc.text('Signed at _____________________ on ___________', margin + colW + 20, sigY + 18);
-  doc.text(`For and on behalf of the Lender`, margin + colW + 20, sigY + 22);
+  const signedDate = loan.signedAt ? new Date(loan.signedAt) : null;
+  const signedDateStr = signedDate ? signedDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '___________';
+  const signedLocStr = loan.signedAt ? 'Electronically' : '_____________________';
+
+  doc.text(`Signed at ${signedLocStr} on ${signedDateStr}`, margin, sigLineY + 6);
+  doc.text(`Borrower: ${loan.signatureData?.name || client?.fullName || ''}`, margin, sigLineY + 10);
+  if (loan.signedAt && loan.signatureData?.id_number) {
+    doc.text(`ID Number: ${loan.signatureData.id_number}`, margin, sigLineY + 14);
+  }
+
+  doc.text('Signed at _____________________ on ___________', margin + colW + 20, sigLineY + 6);
+  doc.text('For and on behalf of the Lender', margin + colW + 20, sigLineY + 10);
+
+  // ---- Electronic signature note (below signature block) if signed ----
+  if (loan.signedAt) {
+    let noteY = sigLineY + 24;
+    if (noteY > 260) { doc.addPage(); noteY = 20; }
+    doc.setDrawColor(200); doc.setLineWidth(0.2);
+    doc.line(margin, noteY, pageW - margin, noteY); noteY += 4;
+
+    doc.setFontSize(7).setFont('helvetica', 'italic').setTextColor(80);
+    const noteLines = [
+      `Electronically signed on ${signedDate.toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })} using an on-device signature capture.`,
+      `Signed by: ${loan.signatureData?.name || client?.fullName || ''}${loan.signatureData?.id_number ? '  ·  ID Number: ' + loan.signatureData.id_number : ''}`,
+      `The Borrower has confirmed reading the agreement and consented to electronic signing.`,
+      `This electronic signature is legally binding under the Electronic Transactions Act, 4 of 2019 (Namibia).`
+    ];
+    for (const line of noteLines) {
+      doc.text(line, margin, noteY);
+      noteY += 3.2;
+    }
+    doc.setTextColor(0);
+  }
 
   // ---- FOOTER ----
   const pageCount = doc.internal.getNumberOfPages();
@@ -2548,88 +2603,9 @@ function generateLoanAgreement(loanId) {
     doc.text(`${loanRef(loan)}  ·  Page ${i} of ${pageCount}`, pageW/2, doc.internal.pageSize.getHeight() - 8, { align: 'center' });
   }
 
-  // ---- APPEND SIGNATURE PAGE if loan is signed ----
-  if (loan.signedAt && loan.signatureData) {
-    doc.addPage();
-    const sig = loan.signatureData;
-    let sy = 25;
-    doc.setFontSize(14).setFont('helvetica', 'bold').setTextColor(0);
-    doc.text('ELECTRONIC SIGNATURE CERTIFICATE', pageW/2, sy, { align: 'center' });
-    sy += 8;
-    doc.setDrawColor(180); doc.setLineWidth(0.3);
-    doc.line(margin, sy, pageW - margin, sy);
-    sy += 8;
-
-    doc.setFontSize(10).setFont('helvetica', 'normal');
-    doc.text('This agreement has been signed electronically. The signature and identity confirmation below', margin, sy); sy += 5;
-    doc.text('constitute a legally binding signature under the Electronic Transactions Act, 4 of 2019.', margin, sy); sy += 10;
-
-    // Signature metadata table
-    doc.setFontSize(9).setFont('helvetica', 'bold');
-    doc.text('Signed By:', margin, sy);
-    doc.setFont('helvetica', 'normal');
-    doc.text(sig.name || client.fullName || '—', margin + 45, sy); sy += 6;
-
-    doc.setFont('helvetica', 'bold');
-    doc.text('ID Number:', margin, sy);
-    doc.setFont('helvetica', 'normal');
-    doc.text(sig.id_number || '—', margin + 45, sy); sy += 6;
-
-    doc.setFont('helvetica', 'bold');
-    doc.text('Date & Time Signed:', margin, sy);
-    doc.setFont('helvetica', 'normal');
-    const signedDate = new Date(sig.timestamp || loan.signedAt);
-    doc.text(signedDate.toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }), margin + 45, sy); sy += 6;
-
-    doc.setFont('helvetica', 'bold');
-    doc.text('Signature Method:', margin, sy);
-    doc.setFont('helvetica', 'normal');
-    doc.text('Electronic (drawn on device)', margin + 45, sy); sy += 6;
-
-    doc.setFont('helvetica', 'bold');
-    doc.text('Loan Reference:', margin, sy);
-    doc.setFont('helvetica', 'normal');
-    doc.text(loanRef(loan), margin + 45, sy); sy += 10;
-
-    // Signature image embed
-    doc.setFont('helvetica', 'bold').setFontSize(9);
-    doc.text('Signature:', margin, sy); sy += 4;
-    if (sig.signature_image) {
-      try {
-        doc.rect(margin, sy, pageW - margin*2, 45);
-        // Position signature image within the box
-        doc.addImage(sig.signature_image, 'PNG', margin + 2, sy + 2, pageW - margin*2 - 4, 41);
-      } catch (e) {
-        doc.setFont('helvetica', 'italic').setTextColor(150);
-        doc.text('(Signature image could not be rendered)', margin + 5, sy + 22);
-        doc.setTextColor(0);
-      }
-    }
-    sy += 55;
-
-    // Consent confirmation
-    doc.setFontSize(9).setFont('helvetica', 'bold');
-    doc.text('Consent Confirmations:', margin, sy); sy += 5;
-    doc.setFont('helvetica', 'normal');
-    doc.text('☑  I have read and understood the terms of this loan agreement.', margin + 3, sy); sy += 5;
-    doc.text('☑  I understand this electronic signature is legally binding under the Electronic', margin + 3, sy); sy += 4;
-    doc.text('    Transactions Act, 4 of 2019.', margin + 3, sy); sy += 8;
-
-    // Legal footer
-    doc.setDrawColor(180); doc.line(margin, sy, pageW - margin, sy); sy += 5;
-    doc.setFontSize(7).setFont('helvetica', 'italic').setTextColor(100);
-    doc.text('This certificate is generated automatically from the signing session recorded in the lender\'s system.', margin, sy); sy += 3.5;
-    doc.text('Retained metadata includes device information and precise timestamp. This document, together with', margin, sy); sy += 3.5;
-    doc.text('the metadata retained by the lender, constitutes proof of execution under Namibian law.', margin, sy);
-
-    // Add footer to new signature page
-    doc.setPage(pageCount + 1);
-    doc.setFontSize(8).setTextColor(120);
-    doc.text(`${loanRef(loan)}  ·  Signature Certificate`, pageW/2, doc.internal.pageSize.getHeight() - 8, { align: 'center' });
-  }
-
   return doc;
 }
+
 
 function downloadLoanAgreement(loanId) {
   const doc = generateLoanAgreement(loanId);
