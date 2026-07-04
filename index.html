@@ -273,6 +273,7 @@ let state = {
   payments: [],
   audit: [],
   products: [],
+  clientLinks: [],
   settings: {},
   currentUser: null,
   currentView: 'dashboard',
@@ -317,14 +318,15 @@ function clientRefById(clientId) {
 // =====================================================
 async function loadData() {
   try {
-    const [clientsRes, loansRes, paymentsRes, productsRes, settingsRes, auditRes, profilesRes] = await Promise.all([
+    const [clientsRes, loansRes, paymentsRes, productsRes, settingsRes, auditRes, profilesRes, linksRes] = await Promise.all([
       db.from('clients').select('*').order('registration_date', {ascending: false}),
       db.from('loans').select('*').order('disbursement_date', {ascending: false}),
       db.from('payments').select('*').order('payment_date', {ascending: false}),
       db.from('products').select('*').order('name'),
       db.from('settings').select('*').eq('id', 1).maybeSingle(),
       db.from('audit').select('*').order('timestamp', {ascending: false}).limit(500),
-      db.from('profiles').select('*')
+      db.from('profiles').select('*'),
+      db.from('client_links').select('*').order('created_at', {ascending: false})
     ]);
     state.clients = (clientsRes.data || []).map(snakeToCamel);
     state.loans = (loansRes.data || []).map(snakeToCamel);
@@ -333,6 +335,7 @@ async function loadData() {
     state.settings = settingsRes.data ? snakeToCamel(settingsRes.data) : {};
     state.audit = (auditRes.data || []).map(snakeToCamel);
     state.users = (profilesRes.data || []).map(snakeToCamel);
+    state.clientLinks = (linksRes.data || []).map(snakeToCamel);
     // Normalize field names
     if (state.settings.penaltyConfig) state.settings.penalty = state.settings.penaltyConfig;
     if (!state.settings.penalty) state.settings.penalty = { enabled: false, type: 'percentage', amount: 5, basis: 'instalment', frequency: 'monthly', gracePeriodDays: 3, maxPenaltyPercent: 100 };
@@ -363,10 +366,10 @@ async function saveSettings() {
 
 async function saveTable(name) {
   // Reload from Supabase to sync state
-  const tableMap = { clients: 'clients', loans: 'loans', payments: 'payments', products: 'products', audit: 'audit', users: 'profiles' };
+  const tableMap = { clients: 'clients', loans: 'loans', payments: 'payments', products: 'products', audit: 'audit', users: 'profiles', clientLinks: 'client_links' };
   const table = tableMap[name];
   if (!table) return;
-  const orderMap = { clients: 'registration_date', loans: 'disbursement_date', payments: 'payment_date', audit: 'timestamp' };
+  const orderMap = { clients: 'registration_date', loans: 'disbursement_date', payments: 'payment_date', audit: 'timestamp', clientLinks: 'created_at' };
   let q = db.from(table).select('*');
   if (orderMap[name]) q = q.order(orderMap[name], { ascending: false });
   if (name === 'audit') q = q.limit(500);
@@ -1191,15 +1194,26 @@ function openLoanDetail(loanId) {
       <div class="bg-white rounded-xl shadow-xl w-full max-w-4xl max-h-[90vh] overflow-auto">
         <div class="px-6 py-4 border-b border-slate-200 flex justify-between items-center">
           <div><h2 class="font-semibold text-lg">Loan ${loanRef(loan)}</h2><div class="text-sm text-slate-500">${escapeHtml(client?.fullName || '—')}</div></div>
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-2 flex-wrap">
             <button onclick="downloadLoanAgreement('${loan.id}')" class="btn-secondary text-sm flex items-center gap-1"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>Agreement PDF</button>
-            <button onclick="shareLoanAgreementWhatsApp('${loan.id}')" class="text-sm text-green-700 hover:text-green-800 border border-green-200 hover:bg-green-50 px-3 py-2 rounded-lg font-medium flex items-center gap-1"><svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448L.057 24zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.225.651 3.891 1.746 5.634l-.999 3.648 3.742-.981zm11.387-5.464c-.074-.124-.272-.198-.57-.347-.297-.149-1.758-.868-2.031-.967-.272-.099-.47-.149-.669.149-.198.297-.768.967-.941 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.462-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.521.151-.172.2-.296.3-.495.099-.198.05-.372-.025-.521-.075-.148-.669-1.611-.916-2.206-.242-.579-.487-.501-.669-.51l-.57-.01c-.198 0-.52.074-.792.372s-1.04 1.016-1.04 2.479 1.065 2.876 1.213 3.074c.149.198 2.095 3.2 5.076 4.487.709.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.695.248-1.29.173-1.414z"/></svg>Send WhatsApp</button>
+            ${!loan.signedAt ? `<button onclick="generateSignatureLink('${loan.id}')" class="text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg font-medium">Send for e-Signature</button>` : ''}
             ${canEdit ? `<button onclick="openLoanForm('${loan.id}')" class="btn-secondary text-sm">Edit</button>` : ''}
             ${canDel ? `<button onclick="deleteLoan('${loan.id}')" class="text-sm text-red-600 hover:text-red-700 px-3 py-2 rounded-lg hover:bg-red-50 font-medium">Delete</button>` : ''}
             <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600 ml-2">✕</button>
           </div>
         </div>
         <div class="p-6">
+          ${loan.signedAt ? `
+            <div class="bg-green-50 border border-green-200 rounded-lg p-4 mb-4 flex justify-between items-center">
+              <div>
+                <div class="flex items-center gap-2">
+                  <svg class="w-5 h-5 text-green-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                  <span class="font-semibold text-green-900">Agreement Signed Electronically</span>
+                </div>
+                <div class="text-xs text-green-800 mt-1">Signed by ${escapeHtml(loan.signatureData?.name || client?.fullName || '—')} on ${fmtDateTime(loan.signedAt)}</div>
+              </div>
+              <button onclick="viewSignatureDetails('${loan.id}')" class="text-sm text-green-800 hover:underline">View Signature</button>
+            </div>` : ''}
           <div class="grid grid-cols-4 gap-4 mb-6 kpi-grid">
             <div><div class="text-xs text-slate-500 uppercase">Principal</div><div class="font-semibold mt-1">${fmt(loan.principal)}</div></div>
             <div><div class="text-xs text-slate-500 uppercase">Interest</div><div class="font-semibold mt-1">${loan.interestRate}%</div></div>
@@ -1457,7 +1471,8 @@ function openClientDetail(clientId) {
       <div class="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-auto">
         <div class="px-6 py-4 border-b border-slate-200 flex justify-between items-center">
           <div><h2 class="font-semibold text-lg">${escapeHtml(c.fullName)}</h2><div class="text-sm text-slate-500 font-mono">${clientRef(c)}</div></div>
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-2 flex-wrap">
+            ${canEdit ? `<button onclick="generateUploadLink('${c.id}')" class="text-sm bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-lg font-medium">Send Upload Link</button>` : ''}
             ${canEdit ? `<button onclick="openClientForm('${c.id}')" class="btn-secondary text-sm">Edit</button>` : ''}
             ${canDel ? `<button onclick="deleteClient('${c.id}')" class="text-sm text-red-600 hover:text-red-700 px-3 py-2 rounded-lg hover:bg-red-50 font-medium">Delete</button>` : ''}
             <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600 ml-2">✕</button>
@@ -2581,7 +2596,23 @@ function downloadLoanAgreement(loanId) {
 }
 
 function buildAgreementMessage(loan, client, companyName) {
-  return `Hello ${client.fullName.split(' ')[0]},\n\nPlease find attached your loan agreement from ${companyName}.\n\nLoan Reference: ${loanRef(loan)}\nPrincipal: ${fmt(loan.principal)}\nTotal Repayable: ${fmt(loan.totalRepayable)}\nMonthly Instalment: ${fmt(loan.monthlyInstallment)}\nFirst Payment Due: ${fmtDate(ensureSchedule(loan)[0]?.dueDate)}\n\nKindly review, sign, and return to us. Please attach the downloaded PDF when responding.\n\nThank you.`;
+  const firstName = client.fullName.split(' ')[0];
+  const principal = fmt(loan.principal);
+  // Generate or find signature link for this loan
+  const link = findActiveSignatureLink(loan.id);
+  const signUrl = link ? `${window.location.origin}${window.location.pathname}?sign=${link.token}` : '';
+  let msg = `Hello ${firstName},\n\nYour loan of ${principal} has been approved.\n\n`;
+  if (signUrl) {
+    msg += `Please review and sign your agreement here:\n${signUrl}\n\nOnce signed, funds will be released.\n\n`;
+  } else {
+    msg += `Your agreement is ready for review and signing. We will send the signature link shortly.\n\n`;
+  }
+  msg += `${companyName}`;
+  return msg;
+}
+
+function findActiveSignatureLink(loanId) {
+  return (state.clientLinks || []).find(l => l.loanId === loanId && l.linkType === 'signature' && !l.completedAt && new Date(l.expiresAt) > new Date());
 }
 
 function shareLoanAgreementWhatsApp(loanId) {
@@ -3959,6 +3990,519 @@ async function buildSyncPayload() { return {}; }
 function renderSettingsSync() { return '<div class="text-slate-500">Cloud sync via Supabase is always on.</div>'; }
 function saveSyncSettings() {}
 
+
+// =====================================================
+// CLIENT LINKS - GENERATION & MANAGEMENT
+// =====================================================
+function generateToken() {
+  // 32-char URL-safe random token
+  const arr = new Uint8Array(24);
+  crypto.getRandomValues(arr);
+  return btoa(String.fromCharCode(...arr)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
+async function createClientLink(linkType, clientId, loanId, expiryDays) {
+  const token = generateToken();
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + (expiryDays || 7));
+  const record = {
+    token,
+    link_type: linkType,
+    client_id: clientId || null,
+    loan_id: loanId || null,
+    expires_at: expiresAt.toISOString(),
+    created_by: state.currentUser?.id || null
+  };
+  const { data, error } = await db.from('client_links').insert(record).select().single();
+  if (error) { showAlert('Could not generate link: ' + error.message); return null; }
+  await saveTable('clientLinks');
+  await logAudit('create', 'client_link', data.id, { type: linkType, clientId, loanId });
+  return data;
+}
+
+function buildLinkUrl(link) {
+  const base = window.location.origin + window.location.pathname;
+  const param = link.link_type === 'upload' ? 'upload' : 'sign';
+  return `${base}?${param}=${link.token}`;
+}
+
+async function generateUploadLink(clientId) {
+  const client = state.clients.find(c => c.id === clientId);
+  if (!client) return;
+  const link = await createClientLink('upload', clientId, null, 7);
+  if (!link) return;
+  const url = buildLinkUrl(link);
+  showUploadLinkModal(url, client);
+}
+
+async function generateSignatureLink(loanId) {
+  const loan = state.loans.find(l => l.id === loanId);
+  if (!loan) return;
+  const client = state.clients.find(c => c.id === loan.clientId);
+  const link = await createClientLink('signature', loan.clientId, loanId, 7);
+  if (!link) return;
+  const url = buildLinkUrl(link);
+  showSignatureLinkModal(url, loan, client);
+}
+
+function showUploadLinkModal(url, client) {
+  const firstName = client.fullName.split(' ')[0];
+  const companyName = state.settings.companyName || 'G & P Finance';
+  const message = `Hello ${firstName},\n\nTo complete your loan application with ${companyName}, please upload your documents here:\n\n${url}\n\nThis link is valid for 7 days.\n\n${companyName}`;
+  const waUrl = `https://wa.me/${(client.phone || '').replace(/[^0-9]/g, '')}?text=${encodeURIComponent(message)}`;
+  document.getElementById('modal-container').innerHTML = `
+    <div class="fixed inset-0 modal-backdrop flex items-center justify-center z-50 p-4" onclick="if(event.target===this) closeModal()">
+      <div class="bg-white rounded-xl shadow-xl w-full max-w-lg">
+        <div class="px-6 py-4 border-b border-slate-200 flex justify-between items-center">
+          <h2 class="font-semibold text-lg">Document Upload Link</h2>
+          <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600">✕</button>
+        </div>
+        <div class="p-6 space-y-4">
+          <p class="text-sm text-slate-700">Share this secure link with ${escapeHtml(client.fullName)} to upload their KYC documents. Link expires in 7 days.</p>
+          <div class="bg-slate-50 border border-slate-200 rounded-lg p-3">
+            <div class="text-xs font-medium text-slate-500 mb-1">Upload Link</div>
+            <div class="text-xs font-mono break-all text-slate-900">${escapeHtml(url)}</div>
+          </div>
+          <div class="bg-blue-50 border border-blue-200 rounded-lg p-3">
+            <div class="text-xs font-medium text-blue-900 mb-1">WhatsApp Message Preview</div>
+            <div class="text-xs text-blue-900 whitespace-pre-wrap">${escapeHtml(message)}</div>
+          </div>
+        </div>
+        <div class="px-6 py-4 border-t border-slate-200 flex justify-end gap-2 flex-wrap">
+          <button onclick="navigator.clipboard.writeText('${url}').then(() => showAlert('Link copied to clipboard'))" class="btn-secondary text-sm">Copy Link</button>
+          <button onclick="navigator.clipboard.writeText(\`${message.replace(/`/g, '\\`').replace(/\$/g, '\\$')}\`).then(() => showAlert('Message copied'))" class="btn-secondary text-sm">Copy Message</button>
+          <a href="${waUrl}" target="_blank" class="text-sm bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium flex items-center gap-2">
+            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448L.057 24z"/></svg>
+            Send via WhatsApp
+          </a>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function showSignatureLinkModal(url, loan, client) {
+  const companyName = state.settings.companyName || 'G & P Finance';
+  const message = buildAgreementMessage(loan, client, companyName);
+  const waUrl = `https://wa.me/${(client.phone || '').replace(/[^0-9]/g, '')}?text=${encodeURIComponent(message)}`;
+  document.getElementById('modal-container').innerHTML = `
+    <div class="fixed inset-0 modal-backdrop flex items-center justify-center z-50 p-4" onclick="if(event.target===this) closeModal()">
+      <div class="bg-white rounded-xl shadow-xl w-full max-w-lg">
+        <div class="px-6 py-4 border-b border-slate-200 flex justify-between items-center">
+          <h2 class="font-semibold text-lg">Signature Link Generated</h2>
+          <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600">✕</button>
+        </div>
+        <div class="p-6 space-y-4">
+          <p class="text-sm text-slate-700">Share this link with ${escapeHtml(client.fullName)} to review and sign the loan agreement. Link expires in 7 days.</p>
+          <div class="bg-slate-50 border border-slate-200 rounded-lg p-3">
+            <div class="text-xs font-medium text-slate-500 mb-1">Signature Link</div>
+            <div class="text-xs font-mono break-all text-slate-900">${escapeHtml(url)}</div>
+          </div>
+          <div class="bg-blue-50 border border-blue-200 rounded-lg p-3">
+            <div class="text-xs font-medium text-blue-900 mb-1">WhatsApp Message Preview</div>
+            <div class="text-xs text-blue-900 whitespace-pre-wrap">${escapeHtml(message)}</div>
+          </div>
+        </div>
+        <div class="px-6 py-4 border-t border-slate-200 flex justify-end gap-2 flex-wrap">
+          <button onclick="navigator.clipboard.writeText('${url}').then(() => showAlert('Link copied to clipboard'))" class="btn-secondary text-sm">Copy Link</button>
+          <a href="${waUrl}" target="_blank" class="text-sm bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium flex items-center gap-2">
+            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448L.057 24z"/></svg>
+            Send via WhatsApp
+          </a>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// =====================================================
+// PUBLIC PAGES (accessed via ?upload=TOKEN or ?sign=TOKEN)
+// =====================================================
+function checkPublicRoute() {
+  const params = new URLSearchParams(window.location.search);
+  const uploadToken = params.get('upload');
+  const signToken = params.get('sign');
+  if (uploadToken) { renderUploadPage(uploadToken); return true; }
+  if (signToken) { renderSignaturePage(signToken); return true; }
+  return false;
+}
+
+async function renderUploadPage(token) {
+  document.getElementById('login-container').classList.add('hidden');
+  document.getElementById('app-container').classList.add('hidden');
+  const container = document.createElement('div');
+  container.id = 'public-container';
+  container.className = 'min-h-screen bg-slate-50 py-6 px-4';
+  container.innerHTML = `<div class="max-w-md mx-auto text-center py-12"><div class="text-slate-500">Loading...</div></div>`;
+  document.body.appendChild(container);
+
+  // Look up the token
+  const { data: link } = await db.from('client_links').select('*').eq('token', token).eq('link_type', 'upload').maybeSingle();
+  if (!link) return renderPublicError(container, 'Invalid or expired link', 'This upload link is not valid. Please contact G & P Finance for a new link.');
+  if (new Date(link.expires_at) < new Date()) return renderPublicError(container, 'Link expired', 'This upload link has expired. Please contact G & P Finance for a new link.');
+  if (link.completed_at) return renderPublicError(container, 'Already submitted', 'Documents have already been submitted through this link. If you need to submit again, please contact G & P Finance.');
+
+  // Look up the client
+  const { data: client } = await db.from('clients').select('*').eq('id', link.client_id).maybeSingle();
+  if (!client) return renderPublicError(container, 'Client not found', 'We could not find your record. Please contact G & P Finance.');
+
+  const companyName = 'G & P Finance';
+  container.innerHTML = `
+    <div class="max-w-md mx-auto">
+      <div class="text-center mb-6">
+        <div class="w-14 h-14 bg-blue-700 rounded-xl mx-auto flex items-center justify-center text-white font-bold text-lg mb-3">G&amp;P</div>
+        <h1 class="text-xl font-bold text-slate-900">${companyName}</h1>
+        <p class="text-sm text-slate-500 mt-1">Document Upload</p>
+      </div>
+      <div class="bg-white rounded-xl border border-slate-200 p-5 mb-4">
+        <div class="text-sm text-slate-700 mb-2">Hello <strong>${escapeHtml(client.full_name)}</strong>,</div>
+        <div class="text-sm text-slate-600">Please take clear photos of each document below and upload them. All fields are required.</div>
+      </div>
+
+      <div id="upload-form" class="space-y-3"></div>
+
+      <div class="mt-6">
+        <button id="submit-uploads-btn" onclick="submitPublicUploads('${token}', '${client.id}')" class="btn-primary w-full" disabled>Submit Documents</button>
+      </div>
+
+      <div class="text-center text-xs text-slate-500 mt-6">
+        Your documents are encrypted and only visible to G &amp; P Finance staff.
+      </div>
+    </div>
+  `;
+
+  const docs = [
+    { key: 'selfie', label: 'Selfie Photo', help: 'A clear photo of your face', accept: 'image/*', capture: 'user' },
+    { key: 'id_front', label: 'ID Card - Front', help: 'Clear photo of the front of your Namibian ID', accept: 'image/*', capture: 'environment' },
+    { key: 'id_back', label: 'ID Card - Back', help: 'Clear photo of the back of your Namibian ID', accept: 'image/*', capture: 'environment' },
+    { key: 'income_document', label: 'Latest Payslip', help: 'Photo or PDF of your most recent payslip', accept: 'image/*,application/pdf' },
+    { key: 'bank_statement', label: 'Bank Statement', help: 'Latest 3 months (photo or PDF)', accept: 'image/*,application/pdf' }
+  ];
+  const formEl = document.getElementById('upload-form');
+  formEl.innerHTML = docs.map(d => `
+    <div class="bg-white rounded-xl border border-slate-200 p-4">
+      <label class="block">
+        <div class="font-medium text-slate-900">${d.label} <span class="text-red-600">*</span></div>
+        <div class="text-xs text-slate-500 mt-1 mb-3">${d.help}</div>
+        <input type="file" id="doc-${d.key}" accept="${d.accept}" ${d.capture ? `capture="${d.capture}"` : ''} onchange="handlePublicFile(this, '${d.key}')" style="font-size:14px">
+        <div id="preview-${d.key}" class="mt-3"></div>
+      </label>
+    </div>
+  `).join('');
+  window._publicUploads = {};
+}
+
+function handlePublicFile(input, key) {
+  const file = input.files[0];
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) {
+    alert('File too large. Maximum 5MB per file.');
+    input.value = '';
+    return;
+  }
+  window._publicUploads[key] = file;
+  const preview = document.getElementById(`preview-${key}`);
+  if (file.type.startsWith('image/')) {
+    const reader = new FileReader();
+    reader.onload = e => {
+      preview.innerHTML = `<img src="${e.target.result}" style="max-width:100%; max-height:200px; border-radius:8px; border:1px solid #e2e8f0;">`;
+    };
+    reader.readAsDataURL(file);
+  } else {
+    preview.innerHTML = `<div class="text-sm text-green-700 bg-green-50 border border-green-200 p-2 rounded">✓ ${escapeHtml(file.name)} (${Math.round(file.size/1024)} KB)</div>`;
+  }
+  // Enable submit if all files present
+  const requiredKeys = ['selfie', 'id_front', 'id_back', 'income_document', 'bank_statement'];
+  const allPresent = requiredKeys.every(k => window._publicUploads[k]);
+  document.getElementById('submit-uploads-btn').disabled = !allPresent;
+}
+
+async function submitPublicUploads(token, clientId) {
+  const btn = document.getElementById('submit-uploads-btn');
+  btn.disabled = true;
+  btn.textContent = 'Uploading...';
+  const urlMap = { selfie: 'selfie_url', id_front: 'id_front_url', id_back: 'id_back_url', income_document: 'income_document_url', bank_statement: 'bank_statement_url' };
+  const updates = {};
+  try {
+    for (const key of Object.keys(window._publicUploads)) {
+      const file = window._publicUploads[key];
+      const ext = file.name.split('.').pop().toLowerCase();
+      const path = `${clientId}/${key}_${Date.now()}.${ext}`;
+      const { error: upErr } = await db.storage.from('kyc-documents').upload(path, file, { contentType: file.type, upsert: true });
+      if (upErr) throw new Error(`Failed to upload ${key}: ${upErr.message}`);
+      const { data: urlData } = db.storage.from('kyc-documents').getPublicUrl(path);
+      updates[urlMap[key]] = urlData.publicUrl;
+    }
+    updates.documents_uploaded_at = new Date().toISOString();
+    const { error: updErr } = await db.from('clients').update(updates).eq('id', clientId);
+    if (updErr) throw new Error('Failed to save: ' + updErr.message);
+    await db.from('client_links').update({ completed_at: new Date().toISOString() }).eq('token', token);
+    document.getElementById('public-container').innerHTML = `
+      <div class="max-w-md mx-auto text-center py-12">
+        <div class="w-16 h-16 bg-green-100 rounded-full mx-auto flex items-center justify-center mb-4">
+          <svg class="w-10 h-10 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+        </div>
+        <h1 class="text-xl font-bold text-slate-900">Thank You</h1>
+        <p class="text-sm text-slate-600 mt-2">Your documents have been submitted successfully.</p>
+        <p class="text-sm text-slate-600 mt-1">G &amp; P Finance will contact you shortly.</p>
+      </div>
+    `;
+  } catch (e) {
+    alert('Upload failed: ' + e.message);
+    btn.disabled = false;
+    btn.textContent = 'Submit Documents';
+  }
+}
+
+async function renderSignaturePage(token) {
+  document.getElementById('login-container').classList.add('hidden');
+  document.getElementById('app-container').classList.add('hidden');
+  const container = document.createElement('div');
+  container.id = 'public-container';
+  container.className = 'min-h-screen bg-slate-50 py-6 px-4';
+  container.innerHTML = `<div class="max-w-2xl mx-auto text-center py-12"><div class="text-slate-500">Loading agreement...</div></div>`;
+  document.body.appendChild(container);
+
+  const { data: link } = await db.from('client_links').select('*').eq('token', token).eq('link_type', 'signature').maybeSingle();
+  if (!link) return renderPublicError(container, 'Invalid link', 'This signature link is not valid. Please contact G & P Finance.');
+  if (new Date(link.expires_at) < new Date()) return renderPublicError(container, 'Link expired', 'This signature link has expired. Please contact G & P Finance.');
+  if (link.completed_at) return renderPublicError(container, 'Already signed', 'This agreement has already been signed.');
+
+  const { data: loan } = await db.from('loans').select('*').eq('id', link.loan_id).maybeSingle();
+  const { data: client } = await db.from('clients').select('*').eq('id', link.client_id).maybeSingle();
+  if (!loan || !client) return renderPublicError(container, 'Not found', 'Loan or client record not found.');
+
+  // We need settings for the agreement — fetch minimal fields
+  const { data: settings } = await db.from('settings').select('*').eq('id', 1).maybeSingle();
+  const companyName = settings?.company_name || 'G & P Finance';
+  const address = settings?.address || '';
+  const phone = settings?.phone || '';
+  const email = settings?.email || '';
+  const namfisaReg = settings?.namfisa_reg || 'Pending';
+
+  const firstDue = new Date(loan.disbursement_date);
+  firstDue.setMonth(firstDue.getMonth() + 1);
+
+  container.innerHTML = `
+    <div class="max-w-2xl mx-auto">
+      <div class="text-center mb-6">
+        <div class="w-14 h-14 bg-blue-700 rounded-xl mx-auto flex items-center justify-center text-white font-bold text-lg mb-3">G&amp;P</div>
+        <h1 class="text-xl font-bold text-slate-900">${companyName}</h1>
+        <p class="text-sm text-slate-500 mt-1">Loan Agreement — Sign to Confirm</p>
+      </div>
+
+      <div class="bg-white rounded-xl border border-slate-200 p-5 mb-4">
+        <h2 class="font-semibold text-slate-900 mb-3">Loan Summary</h2>
+        <div class="space-y-2 text-sm">
+          <div class="flex justify-between"><span class="text-slate-600">Borrower:</span><span class="font-medium">${escapeHtml(client.full_name)}</span></div>
+          <div class="flex justify-between"><span class="text-slate-600">Principal Amount:</span><span class="font-medium">${fmt(loan.principal)}</span></div>
+          <div class="flex justify-between"><span class="text-slate-600">Interest Rate:</span><span class="font-medium">${loan.interest_rate}%</span></div>
+          <div class="flex justify-between"><span class="text-slate-600">Term:</span><span class="font-medium">${loan.term_months} month(s)</span></div>
+          <div class="flex justify-between"><span class="text-slate-600">Total Repayable:</span><span class="font-medium">${fmt(loan.total_repayable)}</span></div>
+          <div class="flex justify-between"><span class="text-slate-600">Monthly Instalment:</span><span class="font-medium">${fmt(loan.monthly_installment)}</span></div>
+          <div class="flex justify-between"><span class="text-slate-600">First Payment Due:</span><span class="font-medium">${firstDue.toISOString().slice(0,10)}</span></div>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl border border-slate-200 p-5 mb-4">
+        <h2 class="font-semibold text-slate-900 mb-3">Terms & Conditions</h2>
+        <div class="text-xs text-slate-700 space-y-2 max-h-64 overflow-y-auto p-3 bg-slate-50 rounded border border-slate-200" id="agreement-terms">
+          <p><strong>1. THE LOAN</strong><br>${companyName} (registered with NAMFISA, reg no: ${escapeHtml(namfisaReg)}) hereby lends ${fmt(loan.principal)} to the Borrower, subject to the terms of this Agreement.</p>
+          <p><strong>2. REPAYMENT</strong><br>The Borrower agrees to repay the total amount of ${fmt(loan.total_repayable)} in ${loan.term_months} monthly instalments of ${fmt(loan.monthly_installment)}, with the first payment due on ${firstDue.toISOString().slice(0,10)}.</p>
+          <p><strong>3. INTEREST</strong><br>Interest is charged at ${loan.interest_rate}% and is included in the Total Repayable amount above.</p>
+          <p><strong>4. COOLING-OFF PERIOD</strong><br>The Borrower has 5 business days from disbursement to cancel this agreement and repay only the principal amount, without interest.</p>
+          <p><strong>5. DEFAULT</strong><br>If any instalment is not paid by its due date, the Lender may charge late payment penalties as disclosed and may take legal action to recover the outstanding balance.</p>
+          <p><strong>6. COMPLAINTS</strong><br>Complaints may be lodged with the Lender at ${escapeHtml(email)}, or with NAMFISA at complaints@namfisa.com.na.</p>
+          <p><strong>7. ELECTRONIC SIGNATURE</strong><br>By signing below, the Borrower agrees this electronic signature is legally binding under the Electronic Transactions Act, 4 of 2019.</p>
+          <p><strong>Lender Contact:</strong> ${escapeHtml(companyName)}, ${escapeHtml(address)}, Tel: ${escapeHtml(phone)}, Email: ${escapeHtml(email)}</p>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl border border-slate-200 p-5 mb-4">
+        <h2 class="font-semibold text-slate-900 mb-3">Verify Your Identity</h2>
+        <div class="space-y-3">
+          <div>
+            <label class="text-sm font-medium">Type Your Full Name *</label>
+            <input type="text" id="sig-name" placeholder="As it appears on your ID" style="font-size:16px; padding:10px; width:100%; margin-top:6px; border:1px solid #e2e8f0; border-radius:6px;">
+          </div>
+          <div>
+            <label class="text-sm font-medium">Type Your ID Number *</label>
+            <input type="text" id="sig-id" placeholder="Namibian ID number" style="font-size:16px; padding:10px; width:100%; margin-top:6px; border:1px solid #e2e8f0; border-radius:6px;">
+          </div>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl border border-slate-200 p-5 mb-4">
+        <h2 class="font-semibold text-slate-900 mb-3">Draw Your Signature</h2>
+        <div class="text-xs text-slate-500 mb-3">Use your finger to sign in the box below.</div>
+        <canvas id="signature-pad" width="500" height="200" style="width:100%; height:200px; border:2px dashed #cbd5e1; border-radius:8px; touch-action:none; background:white;"></canvas>
+        <button onclick="clearSignature()" class="text-sm text-blue-700 hover:underline mt-2">Clear Signature</button>
+      </div>
+
+      <div class="bg-white rounded-xl border border-slate-200 p-5 mb-4">
+        <label class="flex items-start gap-3 cursor-pointer">
+          <input type="checkbox" id="sig-read" style="width:auto; margin-top:3px;">
+          <span class="text-sm">I have read and understood the terms of this loan agreement.</span>
+        </label>
+        <label class="flex items-start gap-3 cursor-pointer mt-3">
+          <input type="checkbox" id="sig-consent" style="width:auto; margin-top:3px;">
+          <span class="text-sm">I understand this electronic signature is legally binding under the Electronic Transactions Act, 4 of 2019.</span>
+        </label>
+      </div>
+
+      <button onclick="submitSignature('${token}', '${loan.id}')" class="btn-primary w-full" style="min-height:52px; font-size:16px;">Sign Agreement</button>
+
+      <div class="text-center text-xs text-slate-500 mt-6">
+        Your signature and identity information are encrypted and stored securely.
+      </div>
+    </div>
+  `;
+
+  initSignaturePad();
+}
+
+function initSignaturePad() {
+  const canvas = document.getElementById('signature-pad');
+  if (!canvas) return;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * 2;
+  canvas.height = rect.height * 2;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(2, 2);
+  ctx.strokeStyle = '#0f172a';
+  ctx.lineWidth = 2;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  let drawing = false;
+  let lastX, lastY;
+  window._sigHasStrokes = false;
+
+  function getPos(e) {
+    const r = canvas.getBoundingClientRect();
+    const touch = e.touches ? e.touches[0] : e;
+    return { x: touch.clientX - r.left, y: touch.clientY - r.top };
+  }
+  function start(e) {
+    e.preventDefault();
+    drawing = true;
+    const p = getPos(e);
+    lastX = p.x; lastY = p.y;
+    window._sigHasStrokes = true;
+  }
+  function move(e) {
+    if (!drawing) return;
+    e.preventDefault();
+    const p = getPos(e);
+    ctx.beginPath();
+    ctx.moveTo(lastX, lastY);
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+    lastX = p.x; lastY = p.y;
+  }
+  function stop() { drawing = false; }
+  canvas.addEventListener('mousedown', start);
+  canvas.addEventListener('mousemove', move);
+  canvas.addEventListener('mouseup', stop);
+  canvas.addEventListener('mouseleave', stop);
+  canvas.addEventListener('touchstart', start);
+  canvas.addEventListener('touchmove', move);
+  canvas.addEventListener('touchend', stop);
+}
+
+function clearSignature() {
+  const canvas = document.getElementById('signature-pad');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  window._sigHasStrokes = false;
+}
+
+async function submitSignature(token, loanId) {
+  const name = document.getElementById('sig-name').value.trim();
+  const idNumber = document.getElementById('sig-id').value.trim();
+  const read = document.getElementById('sig-read').checked;
+  const consent = document.getElementById('sig-consent').checked;
+  if (!name) return alert('Please type your full name.');
+  if (!idNumber) return alert('Please type your ID number.');
+  if (!read || !consent) return alert('Please tick both consent boxes.');
+  if (!window._sigHasStrokes) return alert('Please draw your signature.');
+
+  const canvas = document.getElementById('signature-pad');
+  const signatureImage = canvas.toDataURL('image/png');
+  const signatureData = {
+    name, id_number: idNumber,
+    signature_image: signatureImage,
+    timestamp: new Date().toISOString(),
+    user_agent: navigator.userAgent,
+    terms_accepted: true
+  };
+  try {
+    const { error: upErr } = await db.from('loans').update({
+      signed_at: new Date().toISOString(),
+      signature_data: signatureData
+    }).eq('id', loanId);
+    if (upErr) throw upErr;
+    await db.from('client_links').update({ completed_at: new Date().toISOString() }).eq('token', token);
+    document.getElementById('public-container').innerHTML = `
+      <div class="max-w-md mx-auto text-center py-12">
+        <div class="w-16 h-16 bg-green-100 rounded-full mx-auto flex items-center justify-center mb-4">
+          <svg class="w-10 h-10 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+        </div>
+        <h1 class="text-xl font-bold text-slate-900">Agreement Signed</h1>
+        <p class="text-sm text-slate-600 mt-2">Thank you, ${escapeHtml(name)}.</p>
+        <p class="text-sm text-slate-600 mt-1">Your signed agreement has been received. Funds will be released shortly.</p>
+      </div>
+    `;
+  } catch (e) {
+    alert('Could not save signature: ' + e.message);
+  }
+}
+
+function viewSignatureDetails(loanId) {
+  const loan = state.loans.find(l => l.id === loanId);
+  if (!loan || !loan.signatureData) return;
+  const sig = loan.signatureData;
+  document.getElementById('modal-container').innerHTML = `
+    <div class="fixed inset-0 modal-backdrop flex items-center justify-center z-50 p-4" onclick="if(event.target===this) closeModal()">
+      <div class="bg-white rounded-xl shadow-xl w-full max-w-lg">
+        <div class="px-6 py-4 border-b border-slate-200 flex justify-between items-center">
+          <h2 class="font-semibold text-lg">Electronic Signature</h2>
+          <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600">✕</button>
+        </div>
+        <div class="p-6 space-y-4">
+          <div class="grid grid-cols-2 gap-4 text-sm">
+            <div><div class="text-xs text-slate-500 uppercase">Signed By</div><div class="font-medium mt-1">${escapeHtml(sig.name || '—')}</div></div>
+            <div><div class="text-xs text-slate-500 uppercase">ID Number</div><div class="font-medium mt-1 font-mono">${escapeHtml(sig.id_number || '—')}</div></div>
+            <div class="col-span-2"><div class="text-xs text-slate-500 uppercase">Timestamp</div><div class="font-medium mt-1">${fmtDateTime(sig.timestamp || loan.signedAt)}</div></div>
+          </div>
+          <div>
+            <div class="text-xs text-slate-500 uppercase mb-2">Signature</div>
+            <div class="bg-slate-50 border border-slate-200 rounded-lg p-3">
+              ${sig.signature_image ? `<img src="${sig.signature_image}" style="max-width:100%; max-height:200px;">` : '<div class="text-sm text-slate-500">No signature image available</div>'}
+            </div>
+          </div>
+          <div class="bg-green-50 border border-green-200 rounded-lg p-3 text-xs text-green-900">
+            The Borrower confirmed reading the agreement and consented to electronic signing under the Electronic Transactions Act, 4 of 2019.
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderPublicError(container, title, message) {
+  container.innerHTML = `
+    <div class="max-w-md mx-auto text-center py-12">
+      <div class="w-16 h-16 bg-red-100 rounded-full mx-auto flex items-center justify-center mb-4">
+        <svg class="w-10 h-10 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </div>
+      <h1 class="text-xl font-bold text-slate-900">${escapeHtml(title)}</h1>
+      <p class="text-sm text-slate-600 mt-2">${escapeHtml(message)}</p>
+    </div>
+  `;
+}
+
+
 // =====================================================
 // INIT
 // =====================================================
@@ -3967,6 +4511,9 @@ function saveSyncSettings() {}
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch(err => console.warn('SW registration failed:', err));
   }
+  // Check for public client-facing routes (upload / signature) - no auth needed
+  if (checkPublicRoute()) return;
+  // Normal staff auth flow
   const sessionRestored = await restoreSession();
   if (sessionRestored) {
     await loadData();
