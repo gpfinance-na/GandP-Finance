@@ -2660,30 +2660,51 @@ function downloadLoanAgreement(loanId) {
   logAudit('generate_pdf', 'loan', loanId, { document: isSigned ? 'signed_agreement' : 'agreement' });
 }
 
-function sendSignedAgreementWhatsApp(loanId) {
+async function sendSignedAgreementWhatsApp(loanId) {
   const loan = state.loans.find(l => l.id === loanId);
   if (!loan) return;
   const client = state.clients.find(c => c.id === loan.clientId);
   if (!client?.phone) { showAlert('Client has no phone number on file.'); return; }
-  const companyName = state.settings.companyName || 'G & P Finance';
-  const doc = generateLoanAgreement(loanId);
-  if (!doc) return;
-  const safeName = (client.fullName || 'client').replace(/[^A-Za-z0-9]/g, '_');
-  const filename = `Signed_Loan_Agreement_${safeName}_${loanRef(loan)}.pdf`;
-  // Trigger PDF download so user has the file ready to attach
-  try {
-    doc.save(filename);
-  } catch (e) {
-    // Fallback: open in new tab
-    try { window.open(doc.output('bloburl'), '_blank'); } catch (err) { console.warn('PDF fallback failed:', err); }
+  if (!loan.signedAt) { showAlert('Loan has not been signed yet.'); return; }
+
+  // Check for existing active agreement link for this loan
+  let link = (state.clientLinks || []).find(l => l.loanId === loanId && l.linkType === 'agreement' && new Date(l.expiresAt) > new Date());
+
+  // Create a new one if none exists
+  if (!link) {
+    const token = generateToken();
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 30); // 30 days for agreements
+    const record = {
+      token,
+      link_type: 'agreement',
+      client_id: loan.clientId,
+      loan_id: loanId,
+      expires_at: expiresAt.toISOString(),
+      created_by: state.currentUser?.id || null
+    };
+    const { data, error } = await db.from('client_links').insert(record).select().single();
+    if (error) { showAlert('Could not create agreement link: ' + error.message); return; }
+    await saveTable('clientLinks');
+    await logAudit('create', 'client_link', data.id, { type: 'agreement', loanId });
+    link = snakeToCamel(data);
   }
-  logAudit('generate_pdf', 'loan', loanId, { document: 'signed_agreement', sent: 'whatsapp' });
-  // Compose WhatsApp URL and open in a new tab
-  const message = buildSignedAgreementMessage(loan, client, companyName);
+
+  const url = buildLinkUrl({ link_type: 'agreement', token: link.token });
+  const companyName = state.settings.companyName || 'G & P Finance';
+  const message = buildSignedAgreementLinkMessage(loan, client, companyName, url);
   const phone = (client.phone || '').replace(/[^0-9]/g, '');
   const waUrl = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
-  // Small delay so download initiates first, then WhatsApp opens
-  setTimeout(() => window.open(waUrl, '_blank'), 300);
+  await logAudit('send', 'loan', loanId, { channel: 'whatsapp', method: 'link' });
+  window.open(waUrl, '_blank');
+}
+
+function buildSignedAgreementLinkMessage(loan, client, companyName, url) {
+  const firstName = client.fullName.split(' ')[0];
+  const principal = fmt(loan.principal);
+  const firstDue = new Date(loan.disbursementDate);
+  firstDue.setMonth(firstDue.getMonth() + 1);
+  return `Hello ${firstName},\n\nThank you for signing your loan agreement with ${companyName}.\n\nYou can view and download your signed agreement here:\n${url}\n\nLoan Reference: ${loanRef(loan)}\nPrincipal: ${principal}\nTotal Repayable: ${fmt(loan.totalRepayable)}\nMonthly Instalment: ${fmt(loan.monthlyInstallment)}\nFirst Payment Due: ${firstDue.toISOString().slice(0,10)}\n\nThis link is valid for 30 days.\n\n${companyName}`;
 }
 
 function buildSignedAgreementMessage(loan, client, companyName) {
@@ -4173,7 +4194,10 @@ async function createClientLink(linkType, clientId, loanId, expiryDays) {
 
 function buildLinkUrl(link) {
   const base = window.location.origin + window.location.pathname;
-  const param = link.link_type === 'upload' ? 'upload' : 'sign';
+  let param;
+  if (link.link_type === 'upload') param = 'upload';
+  else if (link.link_type === 'agreement') param = 'agreement';
+  else param = 'sign';
   return `${base}?${param}=${link.token}`;
 }
 
@@ -4273,8 +4297,10 @@ function checkPublicRoute() {
   const params = new URLSearchParams(window.location.search);
   const uploadToken = params.get('upload');
   const signToken = params.get('sign');
+  const agreementToken = params.get('agreement');
   if (uploadToken) { renderUploadPage(uploadToken); return true; }
   if (signToken) { renderSignaturePage(signToken); return true; }
+  if (agreementToken) { renderAgreementViewPage(agreementToken); return true; }
   return false;
 }
 
@@ -4833,6 +4859,152 @@ function viewSignatureDetails(loanId) {
       </div>
     </div>
   `;
+}
+
+async function renderAgreementViewPage(token) {
+  document.getElementById('login-container').classList.add('hidden');
+  document.getElementById('app-container').classList.add('hidden');
+  const container = document.createElement('div');
+  container.id = 'public-container';
+  container.className = 'min-h-screen bg-slate-50 py-6 px-4';
+  container.innerHTML = `<div class="max-w-md mx-auto text-center py-12"><div class="text-slate-500">Loading your agreement...</div></div>`;
+  document.body.appendChild(container);
+
+  // Look up the token
+  const { data: link } = await db.from('client_links').select('*').eq('token', token).eq('link_type', 'agreement').maybeSingle();
+  if (!link) return renderPublicError(container, 'Invalid link', 'This agreement link is not valid. Please contact G & P Finance.');
+  if (new Date(link.expires_at) < new Date()) return renderPublicError(container, 'Link expired', 'This agreement link has expired. Please contact G & P Finance for a new link.');
+
+  // Fetch loan, client, settings
+  const { data: loan } = await db.from('loans').select('*').eq('id', link.loan_id).maybeSingle();
+  const { data: client } = await db.from('clients').select('*').eq('id', link.client_id).maybeSingle();
+  const { data: settings } = await db.from('settings').select('*').eq('id', 1).maybeSingle();
+  if (!loan || !client) return renderPublicError(container, 'Not found', 'Agreement not found.');
+  if (!loan.signed_at) return renderPublicError(container, 'Not yet signed', 'This agreement has not been signed yet.');
+
+  const companyName = settings?.company_name || 'G & P Finance';
+  const firstName = (client.full_name || '').split(' ')[0];
+  const loanRefStr = loan.ref_no || (loan.id ? loan.id.substring(0, 8) : '');
+  const isFullySigned = !!loan.lender_signed_at;
+
+  container.innerHTML = `
+    <div class="max-w-2xl mx-auto">
+      <div class="text-center mb-6">
+        <div class="w-14 h-14 bg-blue-700 rounded-xl mx-auto flex items-center justify-center text-white font-bold text-lg mb-3">G&amp;P</div>
+        <h1 class="text-xl font-bold text-slate-900">${escapeHtml(companyName)}</h1>
+        <p class="text-sm text-slate-500 mt-1">Your Signed Loan Agreement</p>
+      </div>
+
+      <div class="bg-white rounded-xl border border-slate-200 p-5 mb-4">
+        <div class="text-sm text-slate-700 mb-4">Hello <strong>${escapeHtml(firstName)}</strong>,</div>
+        <div class="text-sm text-slate-600 mb-4">Your signed loan agreement is ready. You can view it below or download a copy for your records.</div>
+
+        <div class="grid grid-cols-2 gap-3 text-sm border-t border-slate-200 pt-4">
+          <div><div class="text-xs text-slate-500 uppercase">Reference</div><div class="font-medium mt-1">${escapeHtml(loanRefStr)}</div></div>
+          <div><div class="text-xs text-slate-500 uppercase">Status</div><div class="mt-1"><span class="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">${isFullySigned ? 'Fully Signed' : 'Signed by You'}</span></div></div>
+          <div><div class="text-xs text-slate-500 uppercase">Principal</div><div class="font-medium mt-1">${fmt(loan.principal)}</div></div>
+          <div><div class="text-xs text-slate-500 uppercase">Total Repayable</div><div class="font-medium mt-1">${fmt(loan.total_repayable)}</div></div>
+          <div><div class="text-xs text-slate-500 uppercase">Monthly Instalment</div><div class="font-medium mt-1">${fmt(loan.monthly_installment)}</div></div>
+          <div><div class="text-xs text-slate-500 uppercase">Term</div><div class="font-medium mt-1">${loan.term_months} month(s)</div></div>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl border border-slate-200 p-4 mb-4">
+        <div class="flex flex-col gap-2">
+          <button id="view-pdf-btn" onclick="viewAgreementInline()" class="btn-primary" style="min-height:52px; font-size:16px;">
+            View Agreement PDF
+          </button>
+          <button id="download-pdf-btn" onclick="downloadAgreementForClient()" class="btn-secondary" style="min-height:52px; font-size:16px;">
+            Download to My Device
+          </button>
+        </div>
+        <div class="text-xs text-slate-500 mt-3 text-center">
+          Save this link to access your agreement anytime within 30 days.
+        </div>
+      </div>
+
+      <div id="agreement-viewer" class="hidden bg-white rounded-xl border border-slate-200 overflow-hidden mb-4">
+        <div class="px-4 py-3 border-b border-slate-200 flex justify-between items-center">
+          <div class="text-sm font-medium">Agreement PDF</div>
+          <button onclick="document.getElementById('agreement-viewer').classList.add('hidden')" class="text-slate-400 hover:text-slate-600 text-sm">Close</button>
+        </div>
+        <iframe id="agreement-iframe" style="width:100%; height:80vh; border:none;"></iframe>
+      </div>
+
+      <div class="text-center text-xs text-slate-500 mt-6">
+        Questions? Contact ${escapeHtml(companyName)}${settings?.phone ? ` on ${escapeHtml(settings.phone)}` : ''}.
+      </div>
+    </div>
+  `;
+
+  // Stash the data we need to build the PDF on demand
+  window._agreementViewData = { loan, client, settings };
+}
+
+async function buildAgreementForView() {
+  const { loan, client, settings } = window._agreementViewData || {};
+  if (!loan) return null;
+  // Convert snake_case to camelCase for the PDF generator
+  const camelLoan = {};
+  for (const k in loan) {
+    const camel = k.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+    camelLoan[camel] = loan[k];
+  }
+  const camelClient = {};
+  for (const k in client) {
+    const camel = k.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+    camelClient[camel] = client[k];
+  }
+  const camelSettings = {};
+  for (const k in (settings || {})) {
+    const camel = k.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+    camelSettings[camel] = settings[k];
+  }
+  // Set up temporary state so generateLoanAgreement can find them
+  state.loans = [camelLoan];
+  state.clients = [camelClient];
+  state.settings = camelSettings;
+  return generateLoanAgreement(camelLoan.id);
+}
+
+async function viewAgreementInline() {
+  const btn = document.getElementById('view-pdf-btn');
+  btn.disabled = true;
+  btn.textContent = 'Loading...';
+  try {
+    const doc = await buildAgreementForView();
+    if (!doc) throw new Error('Could not generate agreement');
+    const blob = doc.output('blob');
+    const url = URL.createObjectURL(blob);
+    document.getElementById('agreement-iframe').src = url;
+    document.getElementById('agreement-viewer').classList.remove('hidden');
+    document.getElementById('agreement-viewer').scrollIntoView({ behavior: 'smooth' });
+  } catch (e) {
+    alert('Could not display agreement: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'View Agreement PDF';
+  }
+}
+
+async function downloadAgreementForClient() {
+  const btn = document.getElementById('download-pdf-btn');
+  btn.disabled = true;
+  btn.textContent = 'Preparing...';
+  try {
+    const doc = await buildAgreementForView();
+    if (!doc) throw new Error('Could not generate agreement');
+    const { loan, client } = window._agreementViewData;
+    const safeName = (client.full_name || 'client').replace(/[^A-Za-z0-9]/g, '_');
+    const loanRefStr = loan.ref_no || (loan.id ? loan.id.substring(0, 8) : '');
+    const filename = `Signed_Loan_Agreement_${safeName}_${loanRefStr}.pdf`;
+    doc.save(filename);
+  } catch (e) {
+    alert('Could not download agreement: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Download to My Device';
+  }
 }
 
 function renderPublicError(container, title, message) {
