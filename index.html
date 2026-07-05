@@ -3021,172 +3021,7 @@ function renderSettings() {
   else if (tab === 'signature') body = renderSettingsSignature();
   else if (tab === 'notifications') body = renderSettingsNotifications();
   return `
-    <!-- NOTIFICATIONS TAB -->
-<div id="notifications-tab" style="display: none; padding: 2rem;">
-  <h2 style="font-size: 1.5rem; margin-bottom: 1rem; color: #1e3a8a;">Push Notifications</h2>
-  
-  <div style="background: #f3f4f6; padding: 1.5rem; border-radius: 0.5rem; margin-bottom: 2rem;">
-    <p style="margin: 0; color: #374151; font-size: 0.95rem;">
-      Enable push notifications to receive alerts about loan approvals, document uploads, and important updates on your mobile device or desktop.
-    </p>
-  </div>
-
-  <div style="margin-bottom: 2rem;">
-    <h3 style="font-size: 1rem; margin-bottom: 0.5rem; color: #1f2937;">Notification Status</h3>
-    <div id="notification-status" style="padding: 1rem; background: #e0e7ff; border-left: 4px solid #4f46e5; border-radius: 0.25rem; color: #3730a3;">
-      <strong>Checking browser support...</strong>
-    </div>
-  </div>
-
-  <div style="margin-bottom: 2rem;">
-    <button 
-      id="request-notification-btn" 
-      style="
-        background-color: #1e40af;
-        color: white;
-        padding: 0.75rem 1.5rem;
-        border: none;
-        border-radius: 0.375rem;
-        font-size: 1rem;
-        font-weight: 500;
-        cursor: pointer;
-        transition: background-color 0.2s;
-      "
-      onclick="requestNotificationPermission()"
-    >
-      Request Push Notification Permission
-    </button>
-  </div>
-
-  <div style="margin-bottom: 2rem;">
-    <h3 style="font-size: 1rem; margin-bottom: 0.5rem; color: #1f2937;">Notification Sound</h3>
-    <label style="display: flex; align-items: center; cursor: pointer;">
-      <input 
-        type="checkbox" 
-        id="notification-sound-toggle" 
-        style="margin-right: 0.75rem; width: 18px; height: 18px; cursor: pointer;"
-        onchange="localStorage.setItem('notification-sound', this.checked ? 'true' : 'false')"
-      />
-      <span style="color: #374151;">Play sound when receiving notifications</span>
-    </label>
-  </div>
-
-  <div>
-    <h3 style="font-size: 1rem; margin-bottom: 0.5rem; color: #1f2937;">Active Subscriptions</h3>
-    <div id="subscriptions-list" style="background: #f9fafb; padding: 1rem; border-radius: 0.375rem; border: 1px solid #e5e7eb;">
-      <p style="margin: 0; color: #6b7280; font-size: 0.875rem;"><em>Loading subscriptions...</em></p>
-    </div>
-  </div>
-</div>
-
-<script>
-async function requestNotificationPermission() {
-  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-    alert('Your browser does not support push notifications');
-    return;
-  }
-
-  try {
-    const permission = await Notification.requestPermission();
-    
-    if (permission === 'granted') {
-      const registration = await navigator.serviceWorker.ready;
-      const publicKey = 'BH5RlyNgMQlPJvhR_Z8xRUKIoRzJWWW9vLR6xGLyMxd-HhYsmhJDU7F9PwVkjz5zGBqXPgvXFLDV5BrRvBOOpfU';
-      
-      const subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(publicKey)
-      });
-
-      await savePushSubscription(subscription);
-      alert('✅ Push notifications enabled!');
-      updateNotificationStatus();
-      loadSubscriptions();
-    }
-  } catch (error) {
-    console.error('Error:', error);
-    alert('Error: ' + error.message);
-  }
-}
-
-function urlBase64ToUint8Array(base64String) {
-  const padding = '='.repeat((4 - base64String.length % 4) % 4);
-  const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
-  const rawData = window.atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-  for (let i = 0; i < rawData.length; ++i) {
-    outputArray[i] = rawData.charCodeAt(i);
-  }
-  return outputArray;
-}
-
-async function savePushSubscription(subscription) {
-  const { error } = await supabase
-    .from('push_subscriptions')
-    .insert([{
-      endpoint: subscription.endpoint,
-      p256dh: btoa(String.fromCharCode.apply(null, new Uint8Array(subscription.getKey('p256dh')))),
-      auth: btoa(String.fromCharCode.apply(null, new Uint8Array(subscription.getKey('auth')))),
-      recipient_id: (await supabase.auth.getUser()).data.user?.id || null,
-      created_at: new Date().toISOString()
-    }]);
-  
-  if (error) throw error;
-  console.log('✅ Subscription saved');
-}
-
-async function loadSubscriptions() {
-  const list = document.getElementById('subscriptions-list');
-  const { data } = await supabase
-    .from('push_subscriptions')
-    .select('endpoint, created_at')
-    .order('created_at', { ascending: false });
-
-  if (!data || data.length === 0) {
-    list.innerHTML = '<p style="margin: 0; color: #6b7280; font-size: 0.875rem;"><em>No active subscriptions</em></p>';
-    return;
-  }
-
-  let html = '<div style="font-size: 0.875rem;">';
-  data.forEach((sub, idx) => {
-    const created = new Date(sub.created_at).toLocaleString();
-    html += `<div style="padding: 0.75rem 0; border-bottom: 1px solid #e5e7eb;"><p style="margin: 0; color: #1f2937;">Device ${idx + 1}</p><p style="margin: 0.25rem 0; color: #6b7280; font-family: monospace; font-size: 0.75rem;">${sub.endpoint.substring(0, 50)}...</p><p style="margin: 0; color: #9ca3af; font-size: 0.75rem;">${created}</p></div>`;
-  });
-  list.innerHTML = html + '</div>';
-}
-
-function updateNotificationStatus() {
-  const statusDiv = document.getElementById('notification-status');
-  const permission = Notification.permission;
-  
-  if (permission === 'granted') {
-    statusDiv.innerHTML = '<strong>✅ Push notifications enabled</strong>';
-    statusDiv.style.background = '#dcfce7';
-    statusDiv.style.borderColor = '#22c55e';
-    statusDiv.style.color = '#166534';
-    document.getElementById('request-notification-btn').style.display = 'none';
-  } else if (permission === 'denied') {
-    statusDiv.innerHTML = '<strong>❌ Notifications blocked</strong>';
-    statusDiv.style.background = '#fee2e2';
-    statusDiv.style.borderColor = '#dc2626';
-    statusDiv.style.color = '#991b1b';
-  }
-}
-
-// Load on page ready
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => {
-    updateNotificationStatus();
-    loadSubscriptions();
-    document.getElementById('notification-sound-toggle').checked = localStorage.getItem('notification-sound') !== 'false';
-  });
-} else {
-  updateNotificationStatus();
-  loadSubscriptions();
-  document.getElementById('notification-sound-toggle').checked = localStorage.getItem('notification-sound') !== 'false';
-}
-</script>
-<div class="mb-6">
+    <div class="mb-6">
       <h1 class="text-2xl font-bold text-slate-900">Settings</h1>
       <p class="text-slate-500 text-sm mt-1">Configure company details, loan products, late penalties, signature, and notifications</p>
     </div>
@@ -5562,4 +5397,620 @@ async function generateRejectionUploadLink(clientId, docKey, reason) {
   const firstName = client.fullName.split(' ')[0];
   const companyName = state.settings.companyName || 'G & P Finance';
   const message = `Hello ${firstName},\n\nThe ${docLabel} you submitted needs to be re-uploaded.\n\nReason: ${reason}\n\nPlease upload a corrected version here:\n${url}\n\nThis link is valid for 7 days.\n\n${companyName}`;
-  const waUrl = `https://wa.me/${(client.phone || '').
+  const waUrl = `https://wa.me/${(client.phone || '').replace(/[^0-9]/g, '')}?text=${encodeURIComponent(message)}`;
+  document.getElementById('modal-container').innerHTML = `
+    <div class="fixed inset-0 modal-backdrop flex items-center justify-center z-50 p-4" onclick="if(event.target===this) closeModal()">
+      <div class="bg-white rounded-xl shadow-xl w-full max-w-lg">
+        <div class="px-6 py-4 border-b border-slate-200 flex justify-between items-center">
+          <h2 class="font-semibold text-lg">Rejection Message Ready</h2>
+          <button onclick="closeModal(); openClientDetail('${clientId}');" class="text-slate-400 hover:text-slate-600">✕</button>
+        </div>
+        <div class="p-6 space-y-4">
+          <div class="bg-red-50 border border-red-200 rounded-lg p-3">
+            <div class="text-xs font-medium text-red-900 mb-1">Rejected Document</div>
+            <div class="text-sm text-red-900">${escapeHtml(docLabel)}</div>
+            <div class="text-xs text-red-800 mt-2">Reason: ${escapeHtml(reason)}</div>
+          </div>
+          <div class="bg-green-50 border border-green-200 rounded-lg p-3 text-xs text-green-900">
+            The upload link will show <strong>only the ${escapeHtml(docLabel)}</strong> — the client won't need to re-upload other approved documents.
+          </div>
+          <div class="bg-blue-50 border border-blue-200 rounded-lg p-3">
+            <div class="text-xs font-medium text-blue-900 mb-1">WhatsApp Message</div>
+            <div class="text-xs text-blue-900 whitespace-pre-wrap">${escapeHtml(message)}</div>
+          </div>
+          <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-900">
+            Review the message before sending. Ensure the phone number ${escapeHtml(client.phone)} is in international format (+264...).
+          </div>
+        </div>
+        <div class="px-6 py-4 border-t border-slate-200 flex justify-end gap-2 flex-wrap">
+          <button onclick="navigator.clipboard.writeText(\`${message.replace(/`/g, '\\`').replace(/\$/g, '\\$')}\`).then(() => showAlert('Message copied'))" class="btn-secondary text-sm">Copy Message</button>
+          <a href="${waUrl}" target="_blank" class="text-sm bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium">Send via WhatsApp</a>
+          <button onclick="closeModal(); openClientDetail('${clientId}');" class="btn-secondary text-sm">Done</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// =====================================================
+// ADMIN UPLOAD - Staff uploads on behalf of client
+// =====================================================
+function openAdminUploadModal(clientId) {
+  const client = state.clients.find(c => c.id === clientId);
+  if (!client) return;
+  document.getElementById('modal-container').innerHTML = `
+    <div class="fixed inset-0 modal-backdrop flex items-center justify-center z-50 p-4" onclick="if(event.target===this) closeModal()">
+      <div class="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-auto">
+        <div class="px-6 py-4 border-b border-slate-200 flex justify-between items-center">
+          <div>
+            <h2 class="font-semibold text-lg">Upload Documents for Client</h2>
+            <div class="text-sm text-slate-500 mt-1">${escapeHtml(client.fullName)}</div>
+          </div>
+          <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600">✕</button>
+        </div>
+        <div class="p-6">
+          <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 text-xs text-blue-900">
+            Use this for walk-in clients or those without smartphones. Uploads will be marked as staff-uploaded in the audit trail.
+          </div>
+          <div id="admin-upload-form" class="space-y-3"></div>
+          <button onclick="submitAdminUploads('${clientId}')" id="admin-submit-btn" class="btn-primary w-full mt-4">Upload Documents</button>
+        </div>
+      </div>
+    </div>
+  `;
+  const formEl = document.getElementById('admin-upload-form');
+  formEl.innerHTML = KYC_DOC_TYPES.map(d => `
+    <div class="border border-slate-200 rounded-lg p-3">
+      <label class="text-sm font-medium">${d.icon} ${d.label}${d.multiPage ? ' (multiple pages allowed)' : ''}</label>
+      <input type="file" id="admin-file-${d.key}" accept="image/*,application/pdf" ${d.multiPage ? 'multiple' : ''} class="mt-2" style="font-size:14px">
+      <div id="admin-preview-${d.key}" class="mt-2 text-xs text-slate-600"></div>
+    </div>
+  `).join('');
+  // Add change listeners
+  KYC_DOC_TYPES.forEach(d => {
+    const inp = document.getElementById(`admin-file-${d.key}`);
+    inp.addEventListener('change', () => {
+      const files = Array.from(inp.files);
+      document.getElementById(`admin-preview-${d.key}`).textContent = files.length ? `${files.length} file(s) selected: ${files.map(f => f.name).join(', ')}` : '';
+    });
+  });
+}
+
+async function submitAdminUploads(clientId) {
+  const btn = document.getElementById('admin-submit-btn');
+  btn.disabled = true;
+  btn.textContent = 'Uploading...';
+  const client = state.clients.find(c => c.id === clientId);
+  const updates = {};
+  const sources = { ...(client.documentSources || {}) };
+  const pages = { ...(client.documentPages || {}) };
+  const reviews = { ...(client.documentReviews || {}) };
+  let uploadedCount = 0;
+  try {
+    for (const d of KYC_DOC_TYPES) {
+      const inp = document.getElementById(`admin-file-${d.key}`);
+      const files = Array.from(inp.files);
+      if (files.length === 0) continue;
+      const uploadedUrls = [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        if (file.size > 10 * 1024 * 1024) { showAlert(`File ${file.name} too large (max 10MB). Skipped.`); continue; }
+        const ext = file.name.split('.').pop().toLowerCase();
+        const path = `${clientId}/${d.key}_${Date.now()}_${i}.${ext}`;
+        const { error: upErr } = await db.storage.from('kyc-documents').upload(path, file, { contentType: file.type, upsert: true });
+        if (upErr) throw new Error(`Failed to upload ${file.name}: ${upErr.message}`);
+        const { data: urlData } = db.storage.from('kyc-documents').getPublicUrl(path);
+        uploadedUrls.push(urlData.publicUrl);
+      }
+      if (uploadedUrls.length > 0) {
+        updates[snakeCase(d.urlField)] = uploadedUrls[0];
+        if (uploadedUrls.length > 1) pages[d.key] = uploadedUrls.slice(1);
+        sources[d.key] = state.currentUser.id;
+        // Reset review status since it's a new upload
+        delete reviews[d.key];
+        uploadedCount += uploadedUrls.length;
+      }
+    }
+    if (uploadedCount === 0) { showAlert('No files selected.'); btn.disabled = false; btn.textContent = 'Upload Documents'; return; }
+    updates.document_sources = sources;
+    updates.document_pages = pages;
+    updates.document_reviews = reviews;
+    updates.documents_uploaded_at = new Date().toISOString();
+    const tempClient = { ...client, ...camelifyKeys(updates) };
+    updates.kyc_status = computeKycStatus(tempClient);
+    const { error } = await db.from('clients').update(updates).eq('id', clientId);
+    if (error) throw error;
+    await logAudit('admin_upload', 'client', clientId, { count: uploadedCount });
+    await saveTable('clients');
+    closeModal();
+    openClientDetail(clientId);
+    showAlert(`${uploadedCount} document(s) uploaded successfully.`, 'Uploaded');
+  } catch (e) {
+    showAlert('Upload failed: ' + e.message);
+    btn.disabled = false;
+    btn.textContent = 'Upload Documents';
+  }
+}
+
+function snakeCase(camel) {
+  return camel.replace(/[A-Z]/g, c => '_' + c.toLowerCase());
+}
+function camelifyKeys(obj) {
+  const result = {};
+  for (const k in obj) {
+    const camel = k.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+    result[camel] = obj[k];
+  }
+  return result;
+}
+
+function showKycWarningForClient(clientId) {
+  const box = document.getElementById('kyc-warning-box');
+  if (!box) return;
+  if (!clientId) { box.innerHTML = ''; return; }
+  const client = state.clients.find(c => c.id === clientId);
+  if (!client) { box.innerHTML = ''; return; }
+  const status = client.kycStatus || computeKycStatus(client);
+  if (status === 'Approved') {
+    box.innerHTML = `<div class="text-xs bg-green-50 border border-green-200 text-green-900 rounded px-3 py-2">✓ KYC documents approved</div>`;
+  } else if (status === 'Not Started') {
+    box.innerHTML = `<div class="text-xs bg-red-50 border border-red-200 text-red-900 rounded px-3 py-2">⚠ No KYC documents on file. Consider collecting documents before disbursing this loan.</div>`;
+  } else {
+    box.innerHTML = `<div class="text-xs bg-amber-50 border border-amber-200 text-amber-900 rounded px-3 py-2">⚠ KYC status: <strong>${status}</strong>. Review documents before disbursing.</div>`;
+  }
+}
+
+
+
+// =====================================================
+// NOTIFICATIONS - In-app real-time notifications
+// =====================================================
+state.notifications = [];
+state.notificationsOpen = false;
+window._notificationChannel = null;
+window._notificationSoundEnabled = true;
+window._originalTitle = document.title;
+
+async function loadNotifications() {
+  const { data, error } = await db.from('notifications')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(50);
+  if (error) { console.warn('Notifications load error:', error); return; }
+  state.notifications = (data || []).map(snakeToCamel);
+  updateNotificationBadge();
+}
+
+function subscribeToNotifications() {
+  if (!state.currentUser) return;
+  // Unsubscribe from previous channel if any
+  if (window._notificationChannel) {
+    db.removeChannel(window._notificationChannel);
+    window._notificationChannel = null;
+  }
+  window._notificationChannel = db.channel('notifications-channel')
+    .on('postgres_changes', {
+      event: 'INSERT',
+      schema: 'public',
+      table: 'notifications'
+    }, payload => {
+      const notif = snakeToCamel(payload.new);
+      // Only show if it's for this user or broadcast
+      if (notif.recipientId && notif.recipientId !== state.currentUser.id) return;
+      state.notifications.unshift(notif);
+      if (state.notifications.length > 50) state.notifications = state.notifications.slice(0, 50);
+      updateNotificationBadge();
+      playNotificationSound();
+      // If dropdown is open, refresh it
+      if (state.notificationsOpen) renderNotificationDropdown();
+    })
+    .subscribe();
+}
+
+function unreadNotifications() {
+  return state.notifications.filter(n => !n.readAt);
+}
+
+function updateNotificationBadge() {
+  const count = unreadNotifications().length;
+  const badges = [document.getElementById('notification-badge'), document.getElementById('mobile-notification-badge')];
+  badges.forEach(badge => {
+    if (!badge) return;
+    if (count > 0) {
+      badge.textContent = count > 99 ? '99+' : String(count);
+      badge.style.display = 'flex';
+    } else {
+      badge.style.display = 'none';
+    }
+  });
+  // Update tab title
+  if (count > 0) {
+    document.title = `(${count}) ${window._originalTitle}`;
+  } else {
+    document.title = window._originalTitle;
+  }
+}
+
+function playNotificationSound() {
+  if (!window._notificationSoundEnabled) return;
+  try {
+    // Short chime using Web Audio API - no external file needed
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.frequency.setValueAtTime(1108, ctx.currentTime + 0.08);
+    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.3);
+    // Also try browser Notification API if permission granted
+    if ('Notification' in window && Notification.permission === 'granted' && document.hidden) {
+      const latest = state.notifications[0];
+      if (latest) {
+        new Notification(latest.title, { body: latest.message, icon: '/favicon.svg' });
+      }
+    }
+  } catch (e) { /* silent */ }
+}
+
+function toggleNotifications() {
+  state.notificationsOpen = !state.notificationsOpen;
+  if (state.notificationsOpen) {
+    renderNotificationDropdown();
+    // Request browser notification permission first time
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  } else {
+    const dd = document.getElementById('notification-dropdown');
+    if (dd) dd.remove();
+  }
+}
+
+function renderNotificationDropdown() {
+  // Remove existing
+  const existing = document.getElementById('notification-dropdown');
+  if (existing) existing.remove();
+
+  const notifs = state.notifications.slice(0, 20);
+  const dropdown = document.createElement('div');
+  dropdown.id = 'notification-dropdown';
+  dropdown.style.cssText = 'position:fixed; top:60px; right:16px; width:360px; max-width:calc(100vw - 32px); max-height:70vh; background:white; border:1px solid #e2e8f0; border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,0.15); z-index:100; overflow:hidden; display:flex; flex-direction:column;';
+  const items = notifs.length === 0
+    ? `<div class="p-8 text-center text-sm text-slate-500">No notifications yet.<br>You'll see client uploads and signatures here.</div>`
+    : notifs.map(n => {
+        const isUnread = !n.readAt;
+        const timeAgo = notifTimeAgo(n.createdAt);
+        const iconMap = {
+          upload_submitted: '📄',
+          agreement_signed: '✍️',
+          reupload_submitted: '🔁',
+          loan_due_soon: '⏰',
+          loan_overdue: '⚠️'
+        };
+        const icon = iconMap[n.eventType] || '🔔';
+        return `<div onclick="handleNotificationClick('${n.id}')" style="padding:12px 14px; border-bottom:1px solid #f1f5f9; cursor:pointer; ${isUnread ? 'background:#eff6ff;' : ''} display:flex; gap:10px; align-items:flex-start;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='${isUnread ? '#eff6ff' : 'white'}'">
+          <div style="font-size:20px; flex-shrink:0;">${icon}</div>
+          <div style="flex:1; min-width:0;">
+            <div style="font-weight:${isUnread ? '600' : '500'}; font-size:13px; color:#0f172a;">${escapeHtml(n.title)}</div>
+            <div style="font-size:12px; color:#64748b; margin-top:2px; line-height:1.4;">${escapeHtml(n.message)}</div>
+            <div style="font-size:11px; color:#94a3b8; margin-top:4px;">${timeAgo}</div>
+          </div>
+          ${isUnread ? '<div style="width:8px; height:8px; background:#3b82f6; border-radius:50%; flex-shrink:0; margin-top:6px;"></div>' : ''}
+        </div>`;
+      }).join('');
+  const unreadCount = unreadNotifications().length;
+  dropdown.innerHTML = `
+    <div style="padding:12px 14px; border-bottom:1px solid #e2e8f0; display:flex; justify-content:space-between; align-items:center; background:#f8fafc;">
+      <div style="font-weight:600; font-size:14px;">Notifications</div>
+      <div style="display:flex; gap:8px;">
+        ${unreadCount > 0 ? `<button onclick="markAllNotificationsRead()" style="background:none; border:none; color:#3b82f6; font-size:12px; cursor:pointer; padding:2px 6px;">Mark all read</button>` : ''}
+        <button onclick="toggleNotifications()" style="background:none; border:none; color:#64748b; cursor:pointer; padding:2px 6px; font-size:16px; line-height:1;">✕</button>
+      </div>
+    </div>
+    <div style="overflow-y:auto; flex:1;">${items}</div>
+    <div style="padding:8px 14px; border-top:1px solid #e2e8f0; background:#f8fafc; display:flex; justify-content:space-between; align-items:center;">
+      <label style="font-size:12px; color:#64748b; display:flex; align-items:center; gap:6px; cursor:pointer;">
+        <input type="checkbox" ${window._notificationSoundEnabled ? 'checked' : ''} onchange="window._notificationSoundEnabled = this.checked; localStorage.setItem('gp_notif_sound', this.checked ? '1' : '0');" style="width:auto;">
+        Sound alerts
+      </label>
+    </div>
+  `;
+  document.body.appendChild(dropdown);
+
+  // Close if user clicks outside
+  setTimeout(() => {
+    document.addEventListener('click', closeNotifOnOutsideClick);
+  }, 50);
+}
+
+function closeNotifOnOutsideClick(e) {
+  const dd = document.getElementById('notification-dropdown');
+  const bell = document.getElementById('notification-bell');
+  if (dd && !dd.contains(e.target) && bell && !bell.contains(e.target)) {
+    state.notificationsOpen = false;
+    dd.remove();
+    document.removeEventListener('click', closeNotifOnOutsideClick);
+  }
+}
+
+async function handleNotificationClick(notifId) {
+  const notif = state.notifications.find(n => n.id === notifId);
+  if (!notif) return;
+  // Mark as read
+  if (!notif.readAt) {
+    notif.readAt = new Date().toISOString();
+    await db.from('notifications').update({ read_at: notif.readAt }).eq('id', notifId);
+    updateNotificationBadge();
+  }
+  // Close dropdown
+  state.notificationsOpen = false;
+  const dd = document.getElementById('notification-dropdown');
+  if (dd) dd.remove();
+  // Navigate to relevant entity
+  if (notif.loanId) {
+    openLoanDetail(notif.loanId);
+  } else if (notif.clientId) {
+    openClientDetail(notif.clientId);
+  }
+}
+
+async function markAllNotificationsRead() {
+  const unread = unreadNotifications();
+  if (unread.length === 0) return;
+  const now = new Date().toISOString();
+  const ids = unread.map(n => n.id);
+  const { error } = await db.from('notifications').update({ read_at: now }).in('id', ids);
+  if (error) { showAlert('Could not mark as read: ' + error.message); return; }
+  unread.forEach(n => n.readAt = now);
+  updateNotificationBadge();
+  renderNotificationDropdown();
+}
+
+function notifTimeAgo(iso) {
+  const now = Date.now();
+  const then = new Date(iso).getTime();
+  const seconds = Math.floor((now - then) / 1000);
+  if (seconds < 60) return 'Just now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+}
+
+// Initialise from localStorage
+try {
+  const saved = localStorage.getItem('gp_notif_sound');
+  if (saved !== null) window._notificationSoundEnabled = saved === '1';
+} catch (e) {}
+
+
+
+// =====================================================
+// PUSH NOTIFICATIONS (Level 2) — Client-side subscription
+// =====================================================
+const VAPID_PUBLIC_KEY = 'BAUK2hUBRAvoQXWQN_GcVXJst-LseRAzvD2FlP32XvjOITFXL3efEh2l_srUdKIj_x3ZvpM_pKnXfx5N7LAqh0I';
+const PUSH_FN_URL = SUPABASE_URL + '/functions/v1/send-push';
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
+}
+
+function pushSupported() {
+  return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+}
+
+async function pushEnabledOnDevice() {
+  if (!pushSupported()) return false;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    return !!sub;
+  } catch (e) { return false; }
+}
+
+async function subscribeToPush() {
+  if (!pushSupported()) {
+    showAlert('Your browser does not support push notifications.', 'Not supported');
+    return false;
+  }
+  if (!state.currentUser) {
+    showAlert('You must be signed in.', 'Not signed in');
+    return false;
+  }
+
+  const permission = await Notification.requestPermission();
+  if (permission !== 'granted') {
+    showAlert('Notification permission not granted. You can change this in your browser settings.', 'Permission denied');
+    return false;
+  }
+
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+      });
+    }
+    const subJson = sub.toJSON();
+    const deviceLabel = getDeviceLabel();
+    const { error } = await db.from('push_subscriptions').upsert({
+      user_id: state.currentUser.id,
+      endpoint: sub.endpoint,
+      p256dh: subJson.keys.p256dh,
+      auth: subJson.keys.auth,
+      user_agent: navigator.userAgent,
+      device_label: deviceLabel
+    }, { onConflict: 'endpoint' });
+    if (error) { showAlert('Could not save subscription: ' + error.message); return false; }
+    showAlert('Push notifications are now enabled on this device.', 'Enabled');
+    render();
+    return true;
+  } catch (e) {
+    console.error('subscribeToPush error:', e);
+    showAlert('Could not enable push: ' + e.message);
+    return false;
+  }
+}
+
+async function unsubscribeFromPush() {
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) {
+      await db.from('push_subscriptions').delete().eq('endpoint', sub.endpoint);
+      await sub.unsubscribe();
+    }
+    showAlert('Push notifications disabled on this device.', 'Disabled');
+    render();
+  } catch (e) {
+    showAlert('Could not disable push: ' + e.message);
+  }
+}
+
+function getDeviceLabel() {
+  const ua = navigator.userAgent;
+  let device = 'Unknown Device';
+  if (/iPhone/.test(ua)) device = 'iPhone';
+  else if (/iPad/.test(ua)) device = 'iPad';
+  else if (/Android/.test(ua)) device = 'Android';
+  else if (/Windows/.test(ua)) device = 'Windows PC';
+  else if (/Mac/.test(ua)) device = 'Mac';
+  else if (/Linux/.test(ua)) device = 'Linux';
+  let browser = '';
+  if (/Chrome\//.test(ua) && !/Edg\//.test(ua)) browser = 'Chrome';
+  else if (/Firefox\//.test(ua)) browser = 'Firefox';
+  else if (/Safari\//.test(ua) && !/Chrome\//.test(ua)) browser = 'Safari';
+  else if (/Edg\//.test(ua)) browser = 'Edge';
+  else if (/SamsungBrowser\//.test(ua)) browser = 'Samsung Internet';
+  return browser ? `${device} (${browser})` : device;
+}
+
+// Called after a notification is created — dispatches push to all admin devices
+async function dispatchPush(payload) {
+  try {
+    const resp = await fetch(PUSH_FN_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + SUPABASE_KEY
+      },
+      body: JSON.stringify(payload)
+    });
+    if (!resp.ok) console.warn('Push dispatch failed:', await resp.text());
+  } catch (e) {
+    console.warn('Push dispatch error:', e);
+  }
+}
+
+// Renders the Push Notifications section in Settings > My Signature (or similar)
+function renderPushToggleUI(currentlyEnabled) {
+  if (!pushSupported()) {
+    return `<div class="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded p-3">Push notifications are not supported in this browser.</div>`;
+  }
+  return `
+    <div class="card p-5 mb-4">
+      <h2 class="font-semibold text-slate-900 mb-2">Push Notifications on This Device</h2>
+      <p class="text-sm text-slate-600 mb-4">
+        Receive alerts on this device even when the app is closed. Applies only to this browser or PWA — enable on each device separately.
+      </p>
+      ${currentlyEnabled ? `
+        <div class="bg-green-50 border border-green-200 rounded-lg p-3 mb-3">
+          <div class="text-sm font-medium text-green-900">✓ Push notifications enabled on this device</div>
+          <div class="text-xs text-green-800 mt-1">${escapeHtml(getDeviceLabel())}</div>
+        </div>
+        <button onclick="unsubscribeFromPush()" class="btn-secondary text-sm">Disable on This Device</button>
+      ` : `
+        <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-3 text-xs text-amber-900">
+          Push notifications are not enabled on this device. Enable to receive alerts when the app is closed.
+        </div>
+        <button onclick="subscribeToPush()" class="btn-primary text-sm">Enable Push Notifications</button>
+      `}
+    </div>
+  `;
+}
+
+// =====================================================
+// INIT
+// =====================================================
+(async function init() {
+  // Register service worker for PWA
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').then(reg => {
+      // Listen for updates from the service worker
+      navigator.serviceWorker.addEventListener('message', event => {
+        if (event.data && event.data.type === 'UPDATE_AVAILABLE') {
+          showUpdateBanner();
+        }
+        if (event.data && event.data.type === 'NOTIFICATION_CLICK') {
+          const data = event.data.data || {};
+          if (data.loan_id) {
+            setTimeout(() => openLoanDetail(data.loan_id), 300);
+          } else if (data.client_id) {
+            setTimeout(() => openClientDetail(data.client_id), 300);
+          }
+        }
+      });
+      // Also check for an update every time the app loads
+      reg.update().catch(() => {});
+    }).catch(err => console.warn('SW registration failed:', err));
+  }
+  // Check for public client-facing routes (upload / signature / agreement) - no auth needed
+  if (checkPublicRoute()) return;
+  // Normal staff auth flow
+  const sessionRestored = await restoreSession();
+  if (sessionRestored) {
+    await loadData();
+    await loadNotifications();
+    subscribeToNotifications();
+  }
+  renderApp();
+})();
+
+function showUpdateBanner() {
+  // Avoid stacking multiple banners
+  if (document.getElementById('update-banner')) return;
+  const banner = document.createElement('div');
+  banner.id = 'update-banner';
+  banner.style.cssText = 'position:fixed; top:0; left:0; right:0; z-index:9999; background:#1e40af; color:white; padding:12px 16px; display:flex; justify-content:space-between; align-items:center; box-shadow:0 2px 8px rgba(0,0,0,0.15); font-size:14px;';
+  banner.innerHTML = `
+    <div style="flex:1;">
+      <strong>New version available.</strong>
+      <span style="opacity:0.9; margin-left:6px;">Refresh to load the latest features.</span>
+    </div>
+    <div style="display:flex; gap:8px;">
+      <button onclick="applyUpdate()" style="background:white; color:#1e40af; border:none; padding:6px 14px; border-radius:6px; font-weight:600; cursor:pointer; font-size:14px;">Refresh</button>
+      <button onclick="dismissUpdateBanner()" style="background:transparent; color:white; border:1px solid rgba(255,255,255,0.4); padding:6px 12px; border-radius:6px; cursor:pointer; font-size:14px;">Later</button>
+    </div>
+  `;
+  document.body.appendChild(banner);
+}
+
+function applyUpdate() {
+  // Tell the SW to activate immediately, then reload
+  if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+    navigator.serviceWorker.controller.postMessage({ type: 'SKIP_WAITING' });
+  }
+  setTimeout(() => window.location.reload(), 150);
+}
+
+function dismissUpdateBanner() {
+  const b = document.getElementById('update-banner');
+  if (b) b.remove();
+}
+</script>
+</body>
+</html>
