@@ -799,6 +799,13 @@ function render() {
   if (v === 'settings' && state.currentSettingsTab === 'signature') {
     setTimeout(() => initLenderSignaturePad(), 50);
   }
+  // Update push toggle state on notifications tab
+  if (v === 'settings' && state.currentSettingsTab === 'notifications') {
+    pushEnabledOnDevice().then(enabled => {
+      const container = document.getElementById('push-toggle-container');
+      if (container) container.innerHTML = renderPushToggleUI(enabled);
+    });
+  }
   // Update mobile view title
   const titleEl = document.getElementById('mobile-view-title');
   if (titleEl) {
@@ -3004,17 +3011,19 @@ function renderSettings() {
     { id: 'company', label: 'Company' },
     { id: 'products', label: 'Loan Products' },
     { id: 'penalty', label: 'Late Penalties' },
-    { id: 'signature', label: 'My Signature' }
+    { id: 'signature', label: 'My Signature' },
+    { id: 'notifications', label: 'Notifications' }
   ];
   let body = '';
   if (tab === 'company') body = renderSettingsCompany();
   else if (tab === 'products') body = renderSettingsProducts();
   else if (tab === 'penalty') body = renderSettingsPenalty();
   else if (tab === 'signature') body = renderSettingsSignature();
+  else if (tab === 'notifications') body = renderSettingsNotifications();
   return `
     <div class="mb-6">
       <h1 class="text-2xl font-bold text-slate-900">Settings</h1>
-      <p class="text-slate-500 text-sm mt-1">Configure company details, loan products, late penalties, and your electronic signature</p>
+      <p class="text-slate-500 text-sm mt-1">Configure company details, loan products, late penalties, signature, and notifications</p>
     </div>
     <div class="border-b border-slate-200 mb-6">
       <div class="flex gap-6 flex-wrap">
@@ -3022,6 +3031,27 @@ function renderSettings() {
       </div>
     </div>
     ${body}
+  `;
+}
+
+function renderSettingsNotifications() {
+  return `
+    <div class="max-w-2xl">
+      <div id="push-toggle-container">
+        ${renderPushToggleUI(false)}
+      </div>
+      <div class="card p-4 bg-blue-50 border-blue-200 mt-4">
+        <h3 class="font-semibold text-sm text-blue-900 mb-2">How push notifications work</h3>
+        <ul class="text-xs text-blue-900 space-y-1 list-disc list-inside">
+          <li>Enable on each device separately (phone, laptop, etc.)</li>
+          <li>You'll be asked for browser permission the first time</li>
+          <li>Alerts appear on your lock screen even when the app is closed</li>
+          <li>Includes: client uploads, agreement signatures, re-uploads</li>
+          <li>iOS requires the app to be installed as a PWA (Add to Home Screen)</li>
+          <li>Battery-saver mode may delay delivery</li>
+        </ul>
+      </div>
+    </div>
   `;
 }
 
@@ -4492,6 +4522,12 @@ async function submitPublicUploads(token, clientId) {
           p_client_id: clientId,
           p_loan_id: null
         });
+        await dispatchPush({
+          event_type: 'reupload_submitted',
+          title: `${clientName} re-uploaded documents`,
+          message: `${docLabels} submitted for review`,
+          client_id: clientId
+        });
       } else {
         await db.rpc('create_broadcast_notification', {
           p_event_type: 'upload_submitted',
@@ -4499,6 +4535,12 @@ async function submitPublicUploads(token, clientId) {
           p_message: 'All KYC documents submitted and ready for review',
           p_client_id: clientId,
           p_loan_id: null
+        });
+        await dispatchPush({
+          event_type: 'upload_submitted',
+          title: `${clientName} uploaded KYC documents`,
+          message: 'All KYC documents submitted and ready for review',
+          client_id: clientId
         });
       }
     } catch (e) { console.warn('Notification create failed:', e); }
@@ -4862,6 +4904,12 @@ async function submitSignature(token, loanId) {
         p_message: lenderSignatureData ? 'Both signatures applied. Ready for disbursement.' : 'Awaiting lender countersignature.',
         p_client_id: null,
         p_loan_id: loanId
+      });
+      await dispatchPush({
+        event_type: 'agreement_signed',
+        title: `${name} signed loan agreement`,
+        message: lenderSignatureData ? 'Both signatures applied. Ready for disbursement.' : 'Awaiting lender countersignature.',
+        loan_id: loanId
       });
     } catch (e) { console.warn('Notification create failed:', e); }
     document.getElementById('public-container').innerHTML = `
@@ -5743,6 +5791,158 @@ try {
 } catch (e) {}
 
 
+
+// =====================================================
+// PUSH NOTIFICATIONS (Level 2) — Client-side subscription
+// =====================================================
+const VAPID_PUBLIC_KEY = 'BAUK2hUBRAvoQXWQN_GcVXJst-LseRAzvD2FlP32XvjOITFXL3efEh2l_srUdKIj_x3ZvpM_pKnXfx5N7LAqh0I';
+const PUSH_FN_URL = SUPABASE_URL + '/functions/v1/send-push';
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
+}
+
+function pushSupported() {
+  return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+}
+
+async function pushEnabledOnDevice() {
+  if (!pushSupported()) return false;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    return !!sub;
+  } catch (e) { return false; }
+}
+
+async function subscribeToPush() {
+  if (!pushSupported()) {
+    showAlert('Your browser does not support push notifications.', 'Not supported');
+    return false;
+  }
+  if (!state.currentUser) {
+    showAlert('You must be signed in.', 'Not signed in');
+    return false;
+  }
+
+  const permission = await Notification.requestPermission();
+  if (permission !== 'granted') {
+    showAlert('Notification permission not granted. You can change this in your browser settings.', 'Permission denied');
+    return false;
+  }
+
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+      });
+    }
+    const subJson = sub.toJSON();
+    const deviceLabel = getDeviceLabel();
+    const { error } = await db.from('push_subscriptions').upsert({
+      user_id: state.currentUser.id,
+      endpoint: sub.endpoint,
+      p256dh: subJson.keys.p256dh,
+      auth: subJson.keys.auth,
+      user_agent: navigator.userAgent,
+      device_label: deviceLabel
+    }, { onConflict: 'endpoint' });
+    if (error) { showAlert('Could not save subscription: ' + error.message); return false; }
+    showAlert('Push notifications are now enabled on this device.', 'Enabled');
+    render();
+    return true;
+  } catch (e) {
+    console.error('subscribeToPush error:', e);
+    showAlert('Could not enable push: ' + e.message);
+    return false;
+  }
+}
+
+async function unsubscribeFromPush() {
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) {
+      await db.from('push_subscriptions').delete().eq('endpoint', sub.endpoint);
+      await sub.unsubscribe();
+    }
+    showAlert('Push notifications disabled on this device.', 'Disabled');
+    render();
+  } catch (e) {
+    showAlert('Could not disable push: ' + e.message);
+  }
+}
+
+function getDeviceLabel() {
+  const ua = navigator.userAgent;
+  let device = 'Unknown Device';
+  if (/iPhone/.test(ua)) device = 'iPhone';
+  else if (/iPad/.test(ua)) device = 'iPad';
+  else if (/Android/.test(ua)) device = 'Android';
+  else if (/Windows/.test(ua)) device = 'Windows PC';
+  else if (/Mac/.test(ua)) device = 'Mac';
+  else if (/Linux/.test(ua)) device = 'Linux';
+  let browser = '';
+  if (/Chrome\//.test(ua) && !/Edg\//.test(ua)) browser = 'Chrome';
+  else if (/Firefox\//.test(ua)) browser = 'Firefox';
+  else if (/Safari\//.test(ua) && !/Chrome\//.test(ua)) browser = 'Safari';
+  else if (/Edg\//.test(ua)) browser = 'Edge';
+  else if (/SamsungBrowser\//.test(ua)) browser = 'Samsung Internet';
+  return browser ? `${device} (${browser})` : device;
+}
+
+// Called after a notification is created — dispatches push to all admin devices
+async function dispatchPush(payload) {
+  try {
+    const resp = await fetch(PUSH_FN_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + SUPABASE_KEY
+      },
+      body: JSON.stringify(payload)
+    });
+    if (!resp.ok) console.warn('Push dispatch failed:', await resp.text());
+  } catch (e) {
+    console.warn('Push dispatch error:', e);
+  }
+}
+
+// Renders the Push Notifications section in Settings > My Signature (or similar)
+function renderPushToggleUI(currentlyEnabled) {
+  if (!pushSupported()) {
+    return `<div class="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded p-3">Push notifications are not supported in this browser.</div>`;
+  }
+  return `
+    <div class="card p-5 mb-4">
+      <h2 class="font-semibold text-slate-900 mb-2">Push Notifications on This Device</h2>
+      <p class="text-sm text-slate-600 mb-4">
+        Receive alerts on this device even when the app is closed. Applies only to this browser or PWA — enable on each device separately.
+      </p>
+      ${currentlyEnabled ? `
+        <div class="bg-green-50 border border-green-200 rounded-lg p-3 mb-3">
+          <div class="text-sm font-medium text-green-900">✓ Push notifications enabled on this device</div>
+          <div class="text-xs text-green-800 mt-1">${escapeHtml(getDeviceLabel())}</div>
+        </div>
+        <button onclick="unsubscribeFromPush()" class="btn-secondary text-sm">Disable on This Device</button>
+      ` : `
+        <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-3 text-xs text-amber-900">
+          Push notifications are not enabled on this device. Enable to receive alerts when the app is closed.
+        </div>
+        <button onclick="subscribeToPush()" class="btn-primary text-sm">Enable Push Notifications</button>
+      `}
+    </div>
+  `;
+}
+
 // =====================================================
 // INIT
 // =====================================================
@@ -5754,6 +5954,14 @@ try {
       navigator.serviceWorker.addEventListener('message', event => {
         if (event.data && event.data.type === 'UPDATE_AVAILABLE') {
           showUpdateBanner();
+        }
+        if (event.data && event.data.type === 'NOTIFICATION_CLICK') {
+          const data = event.data.data || {};
+          if (data.loan_id) {
+            setTimeout(() => openLoanDetail(data.loan_id), 300);
+          } else if (data.client_id) {
+            setTimeout(() => openClientDetail(data.client_id), 300);
+          }
         }
       });
       // Also check for an update every time the app loads

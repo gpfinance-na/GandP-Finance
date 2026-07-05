@@ -1,5 +1,5 @@
-// G & P Finance Service Worker v2 (network-first for HTML, cache-first for assets)
-const CACHE_NAME = 'gp-finance-v2';
+// G & P Finance Service Worker v3 (network-first HTML + push notification handling)
+const CACHE_NAME = 'gp-finance-v3';
 const APP_SHELL = [
   './manifest.json',
   'https://cdn.tailwindcss.com',
@@ -85,4 +85,54 @@ self.addEventListener('message', event => {
   if (event.data && event.data.type === 'SKIP_WAITING') {
     self.skipWaiting();
   }
+});
+
+// =====================================================
+// PUSH NOTIFICATION HANDLING
+// =====================================================
+self.addEventListener('push', event => {
+  let payload = { title: 'G & P Finance', body: 'New notification', data: {} };
+  try {
+    if (event.data) payload = { ...payload, ...event.data.json() };
+  } catch (e) {
+    if (event.data) payload.body = event.data.text();
+  }
+
+  const options = {
+    body: payload.body || payload.message || 'New event',
+    icon: payload.icon || '/favicon.svg',
+    badge: payload.badge || '/favicon.svg',
+    data: payload.data || {},
+    vibrate: [200, 100, 200],
+    requireInteraction: false,
+    tag: payload.data?.event_type || 'gp-notification',
+    renotify: true
+  };
+
+  event.waitUntil(
+    self.registration.showNotification(payload.title || 'G & P Finance', options)
+  );
+});
+
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  const data = event.notification.data || {};
+  const baseUrl = self.registration.scope;
+  let targetUrl = baseUrl;
+  if (data.loan_id) targetUrl += `?open_loan=${data.loan_id}`;
+  else if (data.client_id) targetUrl += `?open_client=${data.client_id}`;
+
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
+      // If app is already open, focus it and post a message to navigate
+      for (const client of clientList) {
+        if (client.url.startsWith(baseUrl)) {
+          client.postMessage({ type: 'NOTIFICATION_CLICK', data });
+          return client.focus();
+        }
+      }
+      // Otherwise open a new window
+      if (self.clients.openWindow) return self.clients.openWindow(targetUrl);
+    })
+  );
 });
