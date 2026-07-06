@@ -3093,12 +3093,12 @@ function renderSettingsSignature() {
       <div class="card p-4 bg-blue-50 border-blue-200">
         <h3 class="font-semibold text-sm text-blue-900 mb-2">How this works</h3>
         <ul class="text-xs text-blue-900 space-y-1 list-disc list-inside">
-          <li>Save your signature once — it will be reused on every subsequent loan agreement</li>
-          <li>When a client signs an agreement, the system automatically applies the default lender signature</li>
+          <li>Save your signature once — it will be reused on every loan agreement <strong>you create</strong></li>
+          <li>When a client signs an agreement, the system automatically applies the signature of the staff member who <strong>created that specific loan</strong></li>
           <li>Each application records: date, time, loan reference, and which staff member's signature was used</li>
           <li>The signature appears on the "For and on behalf of the Lender" line of the PDF agreement</li>
-          <li>Only one signature is used as the default per organization (the first Administrator's signature)</li>
-          <li>Loans signed before you save your signature can be countersigned retroactively from the loan detail page</li>
+          <li>If the loan creator has no signature saved, any active Administrator's signature is used as a fallback</li>
+          <li>Loans signed before you save your signature can be countersigned retroactively from the loan detail page (applies YOUR signature, not the original creator's)</li>
         </ul>
       </div>
     </div>
@@ -4867,10 +4867,10 @@ async function submitSignature(token, loanId) {
     terms_accepted: true
   };
 
-  // Try to fetch the default lender signature and auto-apply it
+  // Try to fetch the loan-creator's lender signature and auto-apply it
   let lenderSignatureData = null;
   try {
-    const { data: lenderData } = await db.rpc('get_default_lender_signature');
+    const { data: lenderData } = await db.rpc('get_lender_signature_for_loan', { p_loan_id: loanId });
     if (lenderData && lenderData.length > 0 && lenderData[0].signature_image) {
       lenderSignatureData = {
         signature_image: lenderData[0].signature_image,
