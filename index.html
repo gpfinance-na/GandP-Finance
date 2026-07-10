@@ -6320,6 +6320,10 @@ function applicationRef(app) {
   return 'APP-' + (app.id ? app.id.substring(0, 8).toUpperCase() : '');
 }
 
+function applicationRepayDate(app) {
+  return app.repaymentDate || app.documentPages?._repayment_date || null;
+}
+
 // -----------------------------------------------------
 // PUBLIC APPLICATION FORM (?apply)
 // -----------------------------------------------------
@@ -6343,7 +6347,7 @@ function renderApplyPage() {
       </div>
 
       <div class="bg-white rounded-xl border border-slate-200 p-5 mb-4">
-        <div class="text-sm text-slate-600">Complete the form below and upload clear photos of your documents. We will review your application and contact you on WhatsApp.</div>
+        <div class="text-sm text-slate-600">Complete the form below. Uploading clear photos of your documents is optional, but helps us process your application faster. We will review your application and contact you on WhatsApp.</div>
       </div>
 
       <div class="bg-white rounded-xl border border-slate-200 p-5 mb-4 space-y-4">
@@ -6365,11 +6369,16 @@ function renderApplyPage() {
           <label>Loan Amount Requested (N$)</label>
           <input type="number" id="app-amount" inputmode="decimal" min="0" step="0.01" placeholder="Optional">
         </div>
+        <div>
+          <label>Repayment Date — your next payday <span class="text-red-600">*</span></label>
+          <input type="date" id="app-repaymentDate" min="${applyRepayMinDate()}" max="${applyRepayMaxDate()}">
+          <div class="text-xs text-slate-500 mt-1">Choose the day you get paid. It must be within one month from today, as we offer payday loans.</div>
+        </div>
       </div>
 
       <div class="bg-white rounded-xl border border-slate-200 p-5 mb-4">
         <h2 class="font-semibold text-slate-900 mb-1">Your Documents</h2>
-        <div class="text-xs text-slate-500 mb-4">All documents are required. Max 10MB per photo.</div>
+        <div class="text-xs text-slate-500 mb-4">Optional — you can also send documents later on WhatsApp, but adding them now speeds up approval. Max 10MB per photo.</div>
         <div id="apply-docs" class="space-y-3"></div>
       </div>
 
@@ -6381,7 +6390,7 @@ function renderApplyPage() {
       </div>
 
       <button id="apply-submit-btn" onclick="submitApplication()" class="btn-primary w-full" disabled>Submit Application</button>
-      <div id="apply-hint" class="text-center text-xs text-slate-500 mt-3">Fill in all fields and add all documents to submit.</div>
+      <div id="apply-hint" class="text-center text-xs text-slate-500 mt-3">Fill in your details to submit. Documents are optional.</div>
 
       <div class="text-center text-xs text-slate-500 mt-6 mb-4">
         Your documents are stored securely and are only visible to GPL Finance staff.
@@ -6392,7 +6401,7 @@ function renderApplyPage() {
   const docsEl = document.getElementById('apply-docs');
   docsEl.innerHTML = APPLY_DOC_TYPES.map(d => `
     <div class="bg-slate-50 rounded-xl border border-slate-200 p-4">
-      <div class="font-medium text-slate-900">${d.label} <span class="text-red-600">*</span></div>
+      <div class="font-medium text-slate-900">${d.label} <span class="text-slate-400 text-xs font-normal">(optional)</span></div>
       <div class="text-xs text-slate-500 mt-1 mb-3">${d.help}</div>
       <div id="apply-preview-${d.key}" class="mb-2"></div>
       <label class="inline-block">
@@ -6404,9 +6413,26 @@ function renderApplyPage() {
       </label>
     </div>
   `).join('');
-  ['app-fullName','app-idNumber','app-phone'].forEach(id => {
+  ['app-fullName','app-idNumber','app-phone','app-repaymentDate'].forEach(id => {
     document.getElementById(id).addEventListener('input', updateApplySubmitState);
   });
+  document.getElementById('app-repaymentDate').addEventListener('change', updateApplySubmitState);
+}
+
+function applyRepayMinDate() {
+  const d = new Date(); d.setDate(d.getDate() + 1);
+  return d.toISOString().split('T')[0];
+}
+
+function applyRepayMaxDate() {
+  const d = new Date(); d.setMonth(d.getMonth() + 1);
+  return d.toISOString().split('T')[0];
+}
+
+function applyRepayDateProblem(value) {
+  if (!value) return 'repayment date (your payday)';
+  if (value < applyRepayMinDate() || value > applyRepayMaxDate()) return 'repayment date must be within one month from today';
+  return null;
 }
 
 function handleApplyFile(input, key, multiple) {
@@ -6466,12 +6492,13 @@ function updateApplySubmitState() {
   const idNum = (document.getElementById('app-idNumber')?.value || '').trim();
   const phone = (document.getElementById('app-phone')?.value || '').trim();
   const consent = document.getElementById('app-consent')?.checked;
-  const missingDocs = APPLY_DOC_TYPES.filter(d => !(window._applyUploads[d.key] || []).length).map(d => d.label);
+  const repayDate = (document.getElementById('app-repaymentDate')?.value || '').trim();
   const problems = [];
   if (!name) problems.push('full name');
   if (!idNum) problems.push('ID number');
   if (!phone) problems.push('WhatsApp number');
-  if (missingDocs.length) problems.push(missingDocs.join(', '));
+  const repayProblem = applyRepayDateProblem(repayDate);
+  if (repayProblem) problems.push(repayProblem);
   if (!consent) problems.push('consent tick');
   btn.disabled = problems.length > 0;
   if (hint) hint.textContent = problems.length ? 'Still needed: ' + problems.join('; ') : 'Ready to submit ✓';
@@ -6484,8 +6511,10 @@ async function submitApplication() {
   const phoneDigits = namibianDigits(document.getElementById('app-phone').value);
   const phoneRaw = '+264' + phoneDigits;
   const amount = parseFloat(document.getElementById('app-amount').value) || null;
+  const repaymentDate = document.getElementById('app-repaymentDate').value;
   if (!/^\d{9,13}$/.test(idNum)) { alert('Please check your ID number — it should be the digits on your Namibian ID.'); return; }
   if (phoneDigits.length < 7 || phoneDigits.length > 9) { alert('Please check your mobile number — enter it without the first 0, for example 81 234 5678.'); return; }
+  if (applyRepayDateProblem(repaymentDate)) { alert('Please choose your repayment date — the day you get paid. It must be within one month from today.'); return; }
 
   btn.disabled = true;
   // Keep the same application ID and completed-upload record across retries,
@@ -6502,7 +6531,7 @@ async function submitApplication() {
     phone: phoneRaw,
     amount_requested: amount,
     status: 'Pending',
-    document_pages: {}
+    document_pages: { _repayment_date: repaymentDate }
   };
   const urlMap = { selfie: 'selfie_url', id_front: 'id_front_url', id_back: 'id_back_url', income_document: 'income_document_url', bank_statement: 'bank_statement_url' };
   const totalFiles = APPLY_DOC_TYPES.reduce((s, d) => s + (window._applyUploads[d.key] || []).length, 0);
@@ -6543,7 +6572,7 @@ async function submitApplication() {
 
     // Notify staff (in-app bell + push)
     try {
-      const msg = `ID ${idNum} · ${phoneRaw}` + (amount ? ` · Requested ${fmt(amount)}` : '');
+      const msg = `ID ${idNum} · ${phoneRaw}` + (amount ? ` · Requested ${fmt(amount)}` : '') + ` · Repay ${repaymentDate}`;
       await db.rpc('create_broadcast_notification', {
         p_event_type: 'application_submitted',
         p_title: `${name} submitted a loan application`,
@@ -6643,7 +6672,7 @@ function renderApplications() {
         <div class="overflow-x-auto">
           <table class="w-full text-sm">
             <thead><tr class="text-left text-xs text-slate-500 uppercase border-b border-slate-200">
-              <th class="px-4 py-3">Date</th><th class="px-4 py-3">Ref</th><th class="px-4 py-3">Applicant</th><th class="px-4 py-3">ID Number</th><th class="px-4 py-3">WhatsApp</th><th class="px-4 py-3">Requested</th><th class="px-4 py-3">Status</th><th class="px-4 py-3"></th>
+              <th class="px-4 py-3">Date</th><th class="px-4 py-3">Ref</th><th class="px-4 py-3">Applicant</th><th class="px-4 py-3">ID Number</th><th class="px-4 py-3">WhatsApp</th><th class="px-4 py-3">Requested</th><th class="px-4 py-3">Repay Date</th><th class="px-4 py-3">Status</th><th class="px-4 py-3"></th>
             </tr></thead>
             <tbody>
               ${filtered.map(a => `
@@ -6654,6 +6683,7 @@ function renderApplications() {
                   <td class="px-4 py-3 font-mono text-xs">${escapeHtml(a.idNumber)}</td>
                   <td class="px-4 py-3">${escapeHtml(a.phone)}</td>
                   <td class="px-4 py-3">${a.amountRequested ? fmt(a.amountRequested) : '—'}</td>
+                  <td class="px-4 py-3">${applicationRepayDate(a) ? fmtDate(applicationRepayDate(a)) : '—'}</td>
                   <td class="px-4 py-3">${statusBadge(a.status)}</td>
                   <td class="px-4 py-3 text-right"><button onclick="openApplicationReview('${a.id}')" class="btn-secondary text-xs">Review</button></td>
                 </tr>
@@ -6719,6 +6749,7 @@ function openApplicationReview(appId) {
             <div><div class="text-xs text-slate-500 uppercase">ID Number</div><div class="font-medium mt-1 font-mono">${escapeHtml(app.idNumber)}</div></div>
             <div><div class="text-xs text-slate-500 uppercase">WhatsApp</div><div class="font-medium mt-1">${escapeHtml(app.phone)}</div></div>
             <div><div class="text-xs text-slate-500 uppercase">Requested</div><div class="font-medium mt-1">${app.amountRequested ? fmt(app.amountRequested) : '—'}</div></div>
+            <div><div class="text-xs text-slate-500 uppercase">Repayment Date (payday)</div><div class="font-medium mt-1">${applicationRepayDate(app) ? fmtDate(applicationRepayDate(app)) : '—'}</div></div>
             <div><div class="text-xs text-slate-500 uppercase">Submitted</div><div class="font-medium mt-1">${fmtDate(app.submittedAt)}</div></div>
             <div><div class="text-xs text-slate-500 uppercase">Status</div><div class="font-medium mt-1">${escapeHtml(app.status)}</div></div>
           </div>
