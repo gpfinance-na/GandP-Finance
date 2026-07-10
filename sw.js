@@ -1,5 +1,5 @@
-// G & P Finance Service Worker v13 (AI affordability analysis)
-const CACHE_NAME = 'gp-finance-v13';
+// G & P Finance Service Worker v14 (secure application document viewing)
+const CACHE_NAME = 'gp-finance-v14';
 const APP_SHELL = [
   './manifest.json',
   'https://cdn.tailwindcss.com',

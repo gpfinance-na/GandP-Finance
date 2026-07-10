@@ -6579,15 +6579,16 @@ function renderApplications() {
 function applicationDocGallery(app) {
   const pages = app.documentPages || {};
   const urlMap = { selfie: app.selfieUrl, id_front: app.idFrontUrl, id_back: app.idBackUrl, income_document: app.incomeDocumentUrl, bank_statement: app.bankStatementUrl };
+  const blank = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
   return APPLY_DOC_TYPES.map(d => {
     const all = [urlMap[d.key], ...(pages[d.key] || [])].filter(u => u);
     if (all.length === 0) return `<div class="text-xs text-red-700">✗ ${d.label}: missing</div>`;
     const thumbs = all.map((u, i) => {
       const isPdf = /\.pdf(\?|$)/i.test(u);
-      return `<a href="${u}" target="_blank" rel="noopener" style="display:block; position:relative;">
+      return `<a href="#" onclick="event.preventDefault(); viewDocument('${u}', '${d.key}')" style="display:block; position:relative;">
         ${isPdf
           ? `<div class="bg-slate-100 border border-slate-200 rounded-lg flex items-center justify-center" style="height:90px; font-size:24px;">📄</div>`
-          : `<img src="${u}" loading="lazy" style="width:100%; height:90px; object-fit:cover; border-radius:8px; border:1px solid #e2e8f0;">`}
+          : `<img data-signsrc="${u}" src="${blank}" loading="lazy" style="width:100%; height:90px; object-fit:cover; border-radius:8px; border:1px solid #e2e8f0; background:#f1f5f9;">`}
         ${all.length > 1 ? `<div style="position:absolute; bottom:2px; left:4px; background:rgba(0,0,0,0.6); color:#fff; font-size:10px; padding:1px 5px; border-radius:4px;">Pg ${i + 1}</div>` : ''}
       </a>`;
     }).join('');
@@ -6598,6 +6599,16 @@ function applicationDocGallery(app) {
       </div>
     `;
   }).join('');
+}
+
+// Swap placeholder thumbnails for secure signed links (private bucket)
+async function hydrateApplicationDocThumbs() {
+  const imgs = Array.from(document.querySelectorAll('img[data-signsrc]'));
+  await Promise.all(imgs.map(async img => {
+    const u = img.getAttribute('data-signsrc');
+    img.removeAttribute('data-signsrc');
+    try { img.src = await getSignedUrl(u); } catch (e) { /* leave placeholder */ }
+  }));
 }
 
 function openApplicationReview(appId) {
@@ -6657,6 +6668,7 @@ function openApplicationReview(appId) {
       </div>
     </div>
   `;
+  setTimeout(hydrateApplicationDocThumbs, 50);
 }
 
 // -----------------------------------------------------
