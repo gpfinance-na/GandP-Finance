@@ -1,5 +1,5 @@
-// G & P Finance Service Worker v8 (adds private capital tracking)
-const CACHE_NAME = 'gp-finance-v8';
+// G & P Finance Service Worker v9 (capital position report)
+const CACHE_NAME = 'gp-finance-v9';
 const APP_SHELL = [
   './manifest.json',
   'https://cdn.tailwindcss.com',

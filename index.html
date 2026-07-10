@@ -6689,7 +6689,18 @@ function renderCapital() {
   const entries = (state.capital || []).slice().sort((a, b) => (b.investedOn || '').localeCompare(a.investedOn || ''));
   const total = entries.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
   const totalDisbursed = state.loans.reduce((s, l) => s + (parseFloat(l.principal) || 0), 0);
+  const totalCollected = state.payments.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
+  const outstanding = state.loans.reduce((s, l) => s + loanOutstanding(l.id), 0);
+  const cashOnHand = total + totalCollected - totalDisbursed;
+  const position = cashOnHand + outstanding;
+  const gain = position - total;
+  const gainPct = total > 0 ? (gain / total) * 100 : 0;
   const last = entries[0];
+  const reportRow = (label, value, cls, sub) => `
+    <div class="flex justify-between items-baseline py-2.5 border-b border-slate-100 ${cls || ''}">
+      <div><div class="text-sm">${label}</div>${sub ? `<div class="text-xs text-slate-500">${sub}</div>` : ''}</div>
+      <div class="font-semibold whitespace-nowrap">${value}</div>
+    </div>`;
   return `
     <div class="space-y-5">
       <div class="flex flex-wrap items-center justify-between gap-3">
@@ -6702,9 +6713,23 @@ function renderCapital() {
 
       <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div class="card p-4"><div class="text-xs text-slate-500 uppercase">Total Capital Invested</div><div class="text-2xl font-bold text-blue-800 mt-1">${fmt(total)}</div></div>
-        <div class="card p-4"><div class="text-xs text-slate-500 uppercase">Contributions</div><div class="text-2xl font-bold text-slate-900 mt-1">${entries.length}</div></div>
+        <div class="card p-4"><div class="text-xs text-slate-500 uppercase">Total Loaned Out</div><div class="text-2xl font-bold text-slate-900 mt-1">${fmt(totalDisbursed)}</div><div class="text-xs text-slate-500">Principal, all time</div></div>
+        <div class="card p-4"><div class="text-xs text-slate-500 uppercase">Difference</div><div class="text-2xl font-bold ${total - totalDisbursed >= 0 ? 'text-green-700' : 'text-red-700'} mt-1">${fmt(total - totalDisbursed)}</div><div class="text-xs text-slate-500">Capital − Loaned Out</div></div>
         <div class="card p-4"><div class="text-xs text-slate-500 uppercase">Last Investment</div><div class="text-lg font-bold text-slate-900 mt-1">${last ? fmtDate(last.investedOn) : '—'}</div>${last ? `<div class="text-xs text-slate-500">${fmt(last.amount)}</div>` : ''}</div>
-        <div class="card p-4"><div class="text-xs text-slate-500 uppercase">Total Loaned Out (all time)</div><div class="text-lg font-bold text-slate-900 mt-1">${fmt(totalDisbursed)}</div><div class="text-xs text-slate-500">Principal of all loans</div></div>
+      </div>
+
+      <div class="card p-5">
+        <h2 class="font-semibold text-slate-900 mb-1">Capital Position Report</h2>
+        <p class="text-xs text-slate-500 mb-3">How your capital flows through the business. Repayments are recycled into new loans, so loaned-out can exceed capital over time — that is healthy.</p>
+        ${reportRow('Capital invested by you', fmt(total))}
+        ${reportRow('+ Repayments collected from clients', '+ ' + fmt(totalCollected), '', 'All payments received, all time')}
+        ${reportRow('− Loans disbursed to clients', '− ' + fmt(totalDisbursed), '', 'Principal of all loans, all time')}
+        ${reportRow('= Estimated cash on hand', fmt(cashOnHand), cashOnHand >= 0 ? 'text-green-800 bg-green-50 rounded px-2' : 'text-red-800 bg-red-50 rounded px-2', 'Available to lend out — before operating expenses')}
+        ${reportRow('Outstanding owed by clients', fmt(outstanding), '', 'Loan book balance including interest and penalties')}
+        ${reportRow('= Estimated total position', fmt(position), 'font-semibold', 'Cash on hand + amounts still owed to the business')}
+        ${reportRow('Growth vs capital invested', `${gain >= 0 ? '+' : ''}${fmt(gain)} (${gainPct >= 0 ? '+' : ''}${gainPct.toFixed(1)}%)`, gain >= 0 ? 'text-green-800' : 'text-red-800', 'Total position compared to what you put in')}
+        ${cashOnHand < 0 ? `<div class="mt-3 bg-red-50 border border-red-200 rounded-lg p-3 text-xs text-red-900"><strong>⚠ Cash shortfall:</strong> disbursements exceed capital plus collections by ${fmt(Math.abs(cashOnHand))}. This is the amount you may need to top up.</div>` : ''}
+        <div class="mt-3 text-xs text-slate-400">Note: this report does not include operating expenses (rent, salaries, airtime, etc.) — it tracks loan money flow only.</div>
       </div>
 
       <div class="card overflow-hidden">
