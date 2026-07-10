@@ -896,6 +896,8 @@ function renderDashboard() {
       </div>
     </div>
 
+    ${renderDashboardBankCard()}
+
     <!-- Charts row -->
     <div class="grid grid-cols-2 gap-6 mb-6">
       <div class="card p-5">
@@ -6838,6 +6840,36 @@ state.bankStatements = state.bankStatements || [];
 state.bankTx = state.bankTx || [];
 const RECON_FN_URL = SUPABASE_URL + '/functions/v1/parse-bank-statement';
 const RECON_CATEGORIES = ['Repayment', 'Disbursement', 'Bank Charge', 'Capital In', 'Other', 'Skip (do not save)'];
+
+// Cash at Bank card on the main Dashboard (Administrators only).
+// Compares the real reconciled balance to the system's estimated cash
+// (capital + collections − disbursements) and warns on a large gap.
+function renderDashboardBankCard() {
+  if (state.currentUser?.role !== 'Administrator') return '';
+  const latest = (state.bankStatements || [])[0];
+  if (!latest) return '';
+  const bankBalance = parseFloat(latest.closingBalance) || 0;
+  const totalCapital = (state.capital || []).reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
+  const totalCollected = state.payments.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
+  const totalDisb = state.loans.reduce((s, l) => s + (parseFloat(l.principal) || 0), 0);
+  const estimatedCash = totalCapital + totalCollected - totalDisb;
+  const variance = bankBalance - estimatedCash;
+  // Warn when the gap exceeds N$500 AND 10% of the estimate (avoids noise on small books)
+  const bigGap = Math.abs(variance) > 500 && (estimatedCash === 0 || Math.abs(variance) / Math.max(Math.abs(estimatedCash), 1) > 0.10);
+  return `
+    <div class="card p-5 mb-6 ${bigGap ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-200'}">
+      <div class="flex justify-between items-center flex-wrap gap-3">
+        <div>
+          <div class="text-xs font-medium ${bigGap ? 'text-amber-900' : 'text-green-900'} uppercase">Cash at Bank (reconciled)</div>
+          <div class="text-2xl font-bold ${bigGap ? 'text-amber-900' : 'text-green-900'} mt-1">${fmt(bankBalance)}</div>
+          <div class="text-xs ${bigGap ? 'text-amber-700' : 'text-green-700'} mt-1">${escapeHtml(latest.label)} · imported ${fmtDate(latest.createdAt)}</div>
+          ${bigGap ? `<div class="text-xs text-amber-800 mt-2"><strong>⚠ ${fmt(Math.abs(variance))} ${variance < 0 ? 'below' : 'above'}</strong> the system estimate of ${fmt(estimatedCash)} — check for unrecorded expenses, cash on hand, or payments not yet captured.</div>` : `<div class="text-xs text-green-700 mt-1">Close to the system estimate of ${fmt(estimatedCash)} ✓</div>`}
+        </div>
+        <button onclick="navigate('bankrecon')" class="btn-secondary text-sm">Open Bank Recon</button>
+      </div>
+    </div>
+  `;
+}
 
 function renderBankRecon() {
   if (state.currentUser?.role !== 'Administrator') return '<div class="card p-8 text-center text-sm text-slate-500">This section is available to Administrators only.</div>';
