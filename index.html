@@ -7,10 +7,10 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="G&P Finance">
-<title>G & P Finance — Cashloan System</title>
+<meta name="apple-mobile-web-app-title" content="GPL Finance">
+<title>GPL Finance — Cashloan System</title>
 <link rel="manifest" href="manifest.json">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%231e40af'/%3E%3Ctext x='50' y='68' font-size='55' text-anchor='middle' fill='white' font-family='sans-serif' font-weight='bold'%3EG%26P%3C/text%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%231e40af'/%3E%3Ctext x='50' y='68' font-size='46' text-anchor='middle' fill='white' font-family='sans-serif' font-weight='bold'%3EGPL%3C/text%3E%3C/svg%3E">
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -187,8 +187,8 @@
 <div id="login-container" class="hidden min-h-screen flex items-center justify-center p-4">
   <div class="card w-full max-w-md p-8">
     <div class="text-center mb-6">
-      <div class="w-14 h-14 bg-blue-700 rounded-xl mx-auto flex items-center justify-center text-white font-bold text-xl mb-3">G&amp;P</div>
-      <h1 class="text-xl font-bold text-slate-900">G &amp; P Finance</h1>
+      <div class="w-14 h-14 bg-blue-700 rounded-xl mx-auto flex items-center justify-center text-white font-bold text-xl mb-3">GPL</div>
+      <h1 class="text-xl font-bold text-slate-900">GPL Finance</h1>
       <p class="text-sm text-slate-500 mt-1" id="login-subtitle">Sign in to continue</p>
     </div>
     <div id="login-form-container"></div>
@@ -203,9 +203,9 @@
   <aside id="sidebar" class="w-64 bg-white border-r border-slate-200 flex flex-col">
     <div class="p-6 border-b border-slate-200 flex items-center justify-between">
       <div class="flex items-center gap-2">
-        <div class="w-8 h-8 bg-blue-700 rounded-lg flex items-center justify-center text-white font-bold text-xs">G&amp;P</div>
+        <div class="w-8 h-8 bg-blue-700 rounded-lg flex items-center justify-center text-white font-bold text-xs">GPL</div>
         <div>
-          <div class="font-semibold text-slate-900">G &amp; P Finance</div>
+          <div class="font-semibold text-slate-900">GPL Finance</div>
           <div class="text-xs text-slate-500">Loan Management</div>
         </div>
       </div>
@@ -233,8 +233,8 @@
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
       </button>
       <div class="flex items-center gap-2">
-        <div class="w-7 h-7 bg-blue-700 rounded-lg flex items-center justify-center text-white font-bold" style="font-size:10px">G&amp;P</div>
-        <div class="font-semibold text-slate-900 text-sm" id="mobile-view-title">G &amp; P Finance</div>
+        <div class="w-7 h-7 bg-blue-700 rounded-lg flex items-center justify-center text-white font-bold" style="font-size:10px">GPL</div>
+        <div class="font-semibold text-slate-900 text-sm" id="mobile-view-title">GPL Finance</div>
       </div>
       <button id="mobile-notification-bell" onclick="toggleNotifications()" aria-label="Notifications" style="position:relative; background:none; border:none; padding:6px; cursor:pointer; color:#475569;">
         <svg style="width:22px; height:22px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
@@ -251,6 +251,9 @@
 // =====================================================
 // SUPABASE CLIENT
 // =====================================================
+// Public domain used for all client-facing links (upload / signature / agreement / apply)
+const PUBLIC_APP_URL = 'https://www.gpl-finance.com/';
+
 const SUPABASE_URL = 'https://ockgaeriotbczxavyeyn.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_sAK3POeuE2Yyx3uEHBStBw_btNjQCV4';
 const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
@@ -624,7 +627,7 @@ async function logout() {
     db.removeChannel(window._notificationChannel);
     window._notificationChannel = null;
   }
-  document.title = window._originalTitle || 'G & P Finance';
+  document.title = window._originalTitle || 'GPL Finance';
   renderApp();
 }
 
@@ -829,7 +832,7 @@ function render() {
       payments: 'Payments', reminders: 'Reminders', reports: 'Reports',
       users: 'Users', audit: 'Audit Log', capital: 'Capital Investment', bankrecon: 'Bank Recon', data: 'Backup & Export', settings: 'Settings'
     };
-    titleEl.textContent = titles[v] || 'G & P Finance';
+    titleEl.textContent = titles[v] || 'GPL Finance';
   }
   // Auto-close mobile sidebar after navigation
   toggleMobileSidebar(false);
@@ -2611,7 +2614,7 @@ function sendLoanApprovalWhatsApp(loanId) {
   const firstName = (client.fullName || '').split(' ')[0];
   const message =
     `Dear ${firstName},\n\n` +
-    `Good news! Your loan with G & P Finance has been *APPROVED*. 🎉\n\n` +
+    `Good news! Your loan with GPL Finance has been *APPROVED*. 🎉\n\n` +
     `*Loan Details*\n` +
     `Loan Ref: ${loanRef(loan)}\n` +
     `Loan Amount: ${fmt(loan.principal)}\n` +
@@ -2620,7 +2623,7 @@ function sendLoanApprovalWhatsApp(loanId) {
     (firstDue ? `First Repayment Date: ${fmtDate(firstDue)}\n` : '') +
     (lastDue ? `Final Repayment Date: ${fmtDate(lastDue)}\n` : '') +
     `\nPlease keep this message for your records. If you have any questions, simply reply here.\n\n` +
-    `Kind regards,\nG & P Finance`;
+    `Kind regards,\nGPL Finance`;
   logAudit('send', 'loan', loanId, { channel: 'whatsapp', type: 'approval_notice' });
   openWhatsApp(client.phone, message);
 }
@@ -2647,7 +2650,7 @@ function generateLoanAgreement(loanId) {
 
   // ---- HEADER ----
   doc.setFontSize(13).setFont('helvetica', 'bold');
-  doc.text(s.companyName || 'Instant Cashloan', pageW/2, y, { align: 'center' }); y += 5;
+  doc.text(s.companyName || 'GPL Finance', pageW/2, y, { align: 'center' }); y += 5;
   doc.setFontSize(9).setFont('helvetica', 'normal');
   if (s.namfisaReg) { doc.text(`Registered Microlender · NAMFISA Reg. No.: ${s.namfisaReg}`, pageW/2, y, { align: 'center' }); y += 4; }
   if (s.address) { doc.text(s.address, pageW/2, y, { align: 'center' }); y += 4; }
@@ -2669,7 +2672,7 @@ function generateLoanAgreement(loanId) {
   doc.setFontSize(11).setFont('helvetica', 'bold');
   doc.text('1. PARTIES', margin, y); y += 5;
   doc.setFontSize(9).setFont('helvetica', 'normal');
-  doc.text(`THE LENDER:  ${s.companyName || 'Instant Cashloan'}`, margin, y); y += 4;
+  doc.text(`THE LENDER:  ${s.companyName || 'GPL Finance'}`, margin, y); y += 4;
   if (s.namfisaReg) { doc.text(`             NAMFISA Reg. No.: ${s.namfisaReg}`, margin, y); y += 4; }
   if (s.address) { doc.text(`             Address: ${s.address}`, margin, y); y += 4; }
   y += 2;
@@ -2885,7 +2888,7 @@ function downloadLoanAgreement(loanId) {
   const safeName = (client?.fullName || 'client').replace(/[^A-Za-z0-9]/g, '_');
   const isSigned = !!loan.signedAt;
   const filename = `${isSigned ? 'Signed_' : ''}Loan_Agreement_${safeName}_${loanRef(loan)}.pdf`;
-  const companyName = state.settings.companyName || 'G & P Finance';
+  const companyName = state.settings.companyName || 'GPL Finance';
   const opts = {
     subtitle: `${isSigned ? 'Signed · ' : ''}For ${client?.fullName || ''} · ${loanRef(loan)}`
   };
@@ -2937,7 +2940,7 @@ async function sendSignedAgreementWhatsApp(loanId) {
   }
 
   const url = buildLinkUrl({ link_type: 'agreement', token: link.token });
-  const companyName = state.settings.companyName || 'G & P Finance';
+  const companyName = state.settings.companyName || 'GPL Finance';
   const message = buildSignedAgreementLinkMessage(loan, client, companyName, url);
   const phone = (client.phone || '').replace(/[^0-9]/g, '');
   const waUrl = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
@@ -2966,7 +2969,7 @@ function buildAgreementMessage(loan, client, companyName) {
   const principal = fmt(loan.principal);
   // Generate or find signature link for this loan
   const link = findActiveSignatureLink(loan.id);
-  const signUrl = link ? `${window.location.origin}${window.location.pathname}?sign=${link.token}` : '';
+  const signUrl = link ? `${PUBLIC_APP_URL}?sign=${link.token}` : '';
   let msg = `Hello ${firstName},\n\nYour loan of ${principal} has been approved.\n\n`;
   if (signUrl) {
     msg += `Please review and sign your agreement here:\n${signUrl}\n\nOnce signed, funds will be released.\n\n`;
@@ -2993,7 +2996,7 @@ function downloadReceipt(paymentId) {
   const client = state.clients.find(c => c.id === payment.clientId);
   const safeName = (client?.fullName || 'client').replace(/[^A-Za-z0-9]/g, '_');
   const filename = `Receipt_${safeName}_${paymentRef(payment)}.pdf`;
-  const companyName = state.settings.companyName || 'Instant Cashloan';
+  const companyName = state.settings.companyName || 'GPL Finance';
   const opts = {
     subtitle: `${fmt(payment.amount)} received from ${client?.fullName || ''}`
   };
@@ -3147,7 +3150,7 @@ function generateReceipt(paymentId) {
 
   // Header
   doc.setFontSize(13).setFont('helvetica', 'bold');
-  doc.text(s.companyName || 'Instant Cashloan', pageW/2, y, { align: 'center' }); y += 5;
+  doc.text(s.companyName || 'GPL Finance', pageW/2, y, { align: 'center' }); y += 5;
   doc.setFontSize(8).setFont('helvetica', 'normal');
   if (s.namfisaReg) { doc.text(`NAMFISA Reg. No.: ${s.namfisaReg}`, pageW/2, y, { align: 'center' }); y += 3.5; }
   if (s.address) { doc.text(s.address, pageW/2, y, { align: 'center' }); y += 3.5; }
@@ -3334,7 +3337,7 @@ function renderSettingsCompany() {
       <div class="space-y-4">
         <div>
           <label>Company Name *</label>
-          <input type="text" id="s-companyName" value="${escapeHtml(s.companyName || '')}" placeholder="e.g. Instant Cashloan (Pty) Ltd">
+          <input type="text" id="s-companyName" value="${escapeHtml(s.companyName || '')}" placeholder="e.g. GPL Finance (Pty) Ltd">
         </div>
         <div>
           <label>NAMFISA Registration Number *</label>
@@ -3733,7 +3736,7 @@ function bulkSendStatements() {
       if (!c) continue;
       const clientLoans = state.loans.filter(l => l.clientId === c.id);
       const totalOut = clientLoans.filter(l => l.status === 'Active').reduce((s,l) => s + loanOutstanding(l.id), 0);
-      const msg = `Hello ${c.fullName.split(' ')[0]},\n\nAccount summary from ${state.settings.companyName || 'Instant Cashloan'}:\n\nActive loans: ${clientLoans.filter(l => l.status === 'Active').length}\nTotal outstanding: ${fmt(totalOut)}\n\nPlease contact us if you have any queries.\n\nThank you.`;
+      const msg = `Hello ${c.fullName.split(' ')[0]},\n\nAccount summary from ${state.settings.companyName || 'GPL Finance'}:\n\nActive loans: ${clientLoans.filter(l => l.status === 'Active').length}\nTotal outstanding: ${fmt(totalOut)}\n\nPlease contact us if you have any queries.\n\nThank you.`;
       setTimeout(() => openWhatsApp(c.phone, msg), i * 600); // stagger to avoid popup blocker
     }
     state.bulkSelection.loans.clear();
@@ -3769,7 +3772,7 @@ function renderReminders() {
   upcoming.sort((a,b) => a.daysUntil - b.daysUntil);
 
   const buildReminderMsg = (item, isOverdueMsg) => {
-    const co = state.settings.companyName || 'Instant Cashloan';
+    const co = state.settings.companyName || 'GPL Finance';
     if (isOverdueMsg) {
       return `Hello ${item.client.fullName.split(' ')[0]},\n\nThis is a reminder from ${co} that your loan instalment is now ${item.daysOverdue} day(s) overdue.\n\nLoan: ${loanRef(item.loan)}\nInstalment ${item.inst.instalmentNo} of ${item.loan.termMonths}\nAmount Due: ${fmt(item.balance)}\nOriginal Due Date: ${fmtDate(item.inst.dueDate)}\n\nPlease make payment as soon as possible to avoid further charges and adverse credit listing. Reply to this message to arrange payment.\n\nThank you.`;
     }
@@ -3924,7 +3927,7 @@ async function exportFullBackup() {
   }
   closeConfirm();
   const backup = {
-    appName: 'Instant Cashloan',
+    appName: 'GPL Finance',
     version: 1,
     exportDate: new Date().toISOString(),
     exportedBy: state.currentUser?.fullName || 'Unknown',
@@ -4462,7 +4465,7 @@ async function createClientLink(linkType, clientId, loanId, expiryDays) {
 }
 
 function buildLinkUrl(link) {
-  const base = window.location.origin + window.location.pathname;
+  const base = PUBLIC_APP_URL;
   let param;
   if (link.link_type === 'upload') param = 'upload';
   else if (link.link_type === 'agreement') param = 'agreement';
@@ -4491,7 +4494,7 @@ async function generateSignatureLink(loanId) {
 
 function showUploadLinkModal(url, client) {
   const firstName = client.fullName.split(' ')[0];
-  const companyName = state.settings.companyName || 'G & P Finance';
+  const companyName = state.settings.companyName || 'GPL Finance';
   const message = `Hello ${firstName},\n\nTo complete your loan application with ${companyName}, please upload your documents here:\n\n${url}\n\nThis link is valid for 7 days.\n\n${companyName}`;
   const waUrl = `https://wa.me/${(client.phone || '').replace(/[^0-9]/g, '')}?text=${encodeURIComponent(message)}`;
   document.getElementById('modal-container').innerHTML = `
@@ -4526,7 +4529,7 @@ function showUploadLinkModal(url, client) {
 }
 
 function showSignatureLinkModal(url, loan, client) {
-  const companyName = state.settings.companyName || 'G & P Finance';
+  const companyName = state.settings.companyName || 'GPL Finance';
   const message = buildAgreementMessage(loan, client, companyName);
   const waUrl = `https://wa.me/${(client.phone || '').replace(/[^0-9]/g, '')}?text=${encodeURIComponent(message)}`;
   document.getElementById('modal-container').innerHTML = `
@@ -4585,15 +4588,15 @@ async function renderUploadPage(token) {
 
   // Look up the token
   const { data: link } = await db.from('client_links').select('*').eq('token', token).eq('link_type', 'upload').maybeSingle();
-  if (!link) return renderPublicError(container, 'Invalid or expired link', 'This upload link is not valid. Please contact G & P Finance for a new link.');
-  if (new Date(link.expires_at) < new Date()) return renderPublicError(container, 'Link expired', 'This upload link has expired. Please contact G & P Finance for a new link.');
-  if (link.completed_at) return renderPublicError(container, 'Already submitted', 'Documents have already been submitted through this link. If you need to submit again, please contact G & P Finance.');
+  if (!link) return renderPublicError(container, 'Invalid or expired link', 'This upload link is not valid. Please contact GPL Finance for a new link.');
+  if (new Date(link.expires_at) < new Date()) return renderPublicError(container, 'Link expired', 'This upload link has expired. Please contact GPL Finance for a new link.');
+  if (link.completed_at) return renderPublicError(container, 'Already submitted', 'Documents have already been submitted through this link. If you need to submit again, please contact GPL Finance.');
 
   // Look up the client
   const { data: client } = await db.from('clients').select('*').eq('id', link.client_id).maybeSingle();
-  if (!client) return renderPublicError(container, 'Client not found', 'We could not find your record. Please contact G & P Finance.');
+  if (!client) return renderPublicError(container, 'Client not found', 'We could not find your record. Please contact GPL Finance.');
 
-  const companyName = 'G & P Finance';
+  const companyName = 'GPL Finance';
 
   // Check if this link is for specific documents only (rejection re-upload)
   const requestedDocs = link.metadata?.requested_docs || null;
@@ -4612,7 +4615,7 @@ async function renderUploadPage(token) {
   container.innerHTML = `
     <div class="max-w-md mx-auto">
       <div class="text-center mb-6">
-        <div class="w-14 h-14 bg-blue-700 rounded-xl mx-auto flex items-center justify-center text-white font-bold text-lg mb-3">G&amp;P</div>
+        <div class="w-14 h-14 bg-blue-700 rounded-xl mx-auto flex items-center justify-center text-white font-bold text-lg mb-3">GPL</div>
         <h1 class="text-xl font-bold text-slate-900">${companyName}</h1>
         <p class="text-sm text-slate-500 mt-1">${isTargeted ? 'Document Re-Upload' : 'Document Upload'}</p>
       </div>
@@ -4633,7 +4636,7 @@ async function renderUploadPage(token) {
       </div>
 
       <div class="text-center text-xs text-slate-500 mt-6">
-        Your documents are encrypted and only visible to G &amp; P Finance staff.
+        Your documents are encrypted and only visible to GPL Finance staff.
       </div>
     </div>
   `;
@@ -4773,7 +4776,7 @@ async function submitPublicUploads(token, clientId) {
         </div>
         <h1 class="text-xl font-bold text-slate-900">Thank You</h1>
         <p class="text-sm text-slate-600 mt-2">Your document${isTargeted ? '' : 's'} ha${isTargeted ? 's' : 've'} been submitted successfully.</p>
-        <p class="text-sm text-slate-600 mt-1">G &amp; P Finance will contact you shortly.</p>
+        <p class="text-sm text-slate-600 mt-1">GPL Finance will contact you shortly.</p>
       </div>
     `;
   } catch (e) {
@@ -4793,8 +4796,8 @@ async function renderSignaturePage(token) {
   document.body.appendChild(container);
 
   const { data: link } = await db.from('client_links').select('*').eq('token', token).eq('link_type', 'signature').maybeSingle();
-  if (!link) return renderPublicError(container, 'Invalid link', 'This signature link is not valid. Please contact G & P Finance.');
-  if (new Date(link.expires_at) < new Date()) return renderPublicError(container, 'Link expired', 'This signature link has expired. Please contact G & P Finance.');
+  if (!link) return renderPublicError(container, 'Invalid link', 'This signature link is not valid. Please contact GPL Finance.');
+  if (new Date(link.expires_at) < new Date()) return renderPublicError(container, 'Link expired', 'This signature link has expired. Please contact GPL Finance.');
   if (link.completed_at) return renderPublicError(container, 'Already signed', 'This agreement has already been signed.');
 
   const { data: loan } = await db.from('loans').select('*').eq('id', link.loan_id).maybeSingle();
@@ -4803,7 +4806,7 @@ async function renderSignaturePage(token) {
 
   // We need settings for the agreement — fetch minimal fields
   const { data: settings } = await db.from('settings').select('*').eq('id', 1).maybeSingle();
-  const companyName = settings?.company_name || 'G & P Finance';
+  const companyName = settings?.company_name || 'GPL Finance';
   const address = settings?.address || '';
   const phone = settings?.phone || '';
   const email = settings?.email || '';
@@ -4815,7 +4818,7 @@ async function renderSignaturePage(token) {
   container.innerHTML = `
     <div class="max-w-2xl mx-auto">
       <div class="text-center mb-6">
-        <div class="w-14 h-14 bg-blue-700 rounded-xl mx-auto flex items-center justify-center text-white font-bold text-lg mb-3">G&amp;P</div>
+        <div class="w-14 h-14 bg-blue-700 rounded-xl mx-auto flex items-center justify-center text-white font-bold text-lg mb-3">GPL</div>
         <h1 class="text-xl font-bold text-slate-900">${companyName}</h1>
         <p class="text-sm text-slate-500 mt-1">Loan Agreement — Sign to Confirm</p>
       </div>
@@ -5192,8 +5195,8 @@ async function renderAgreementViewPage(token) {
 
   // Look up the token
   const { data: link } = await db.from('client_links').select('*').eq('token', token).eq('link_type', 'agreement').maybeSingle();
-  if (!link) return renderPublicError(container, 'Invalid link', 'This agreement link is not valid. Please contact G & P Finance.');
-  if (new Date(link.expires_at) < new Date()) return renderPublicError(container, 'Link expired', 'This agreement link has expired. Please contact G & P Finance for a new link.');
+  if (!link) return renderPublicError(container, 'Invalid link', 'This agreement link is not valid. Please contact GPL Finance.');
+  if (new Date(link.expires_at) < new Date()) return renderPublicError(container, 'Link expired', 'This agreement link has expired. Please contact GPL Finance for a new link.');
 
   // Fetch loan, client, settings
   const { data: loan } = await db.from('loans').select('*').eq('id', link.loan_id).maybeSingle();
@@ -5202,7 +5205,7 @@ async function renderAgreementViewPage(token) {
   if (!loan || !client) return renderPublicError(container, 'Not found', 'Agreement not found.');
   if (!loan.signed_at) return renderPublicError(container, 'Not yet signed', 'This agreement has not been signed yet.');
 
-  const companyName = settings?.company_name || 'G & P Finance';
+  const companyName = settings?.company_name || 'GPL Finance';
   const firstName = (client.full_name || '').split(' ')[0];
   const loanRefStr = loan.ref_no || (loan.id ? loan.id.substring(0, 8) : '');
   const isFullySigned = !!loan.lender_signed_at;
@@ -5210,7 +5213,7 @@ async function renderAgreementViewPage(token) {
   container.innerHTML = `
     <div class="max-w-2xl mx-auto">
       <div class="text-center mb-6">
-        <div class="w-14 h-14 bg-blue-700 rounded-xl mx-auto flex items-center justify-center text-white font-bold text-lg mb-3">G&amp;P</div>
+        <div class="w-14 h-14 bg-blue-700 rounded-xl mx-auto flex items-center justify-center text-white font-bold text-lg mb-3">GPL</div>
         <h1 class="text-xl font-bold text-slate-900">${escapeHtml(companyName)}</h1>
         <p class="text-sm text-slate-500 mt-1">Your Signed Loan Agreement</p>
       </div>
@@ -5704,7 +5707,7 @@ async function generateRejectionUploadLink(clientId, docKey, reason) {
   await logAudit('create', 'client_link', link.id, { type: 'upload', targeted: [docKey] });
   const url = buildLinkUrl(link);
   const firstName = client.fullName.split(' ')[0];
-  const companyName = state.settings.companyName || 'G & P Finance';
+  const companyName = state.settings.companyName || 'GPL Finance';
   const message = `Hello ${firstName},\n\nThe ${docLabel} you submitted needs to be re-uploaded.\n\nReason: ${reason}\n\nPlease upload a corrected version here:\n${url}\n\nThis link is valid for 7 days.\n\n${companyName}`;
   const waUrl = `https://wa.me/${(client.phone || '').replace(/[^0-9]/g, '')}?text=${encodeURIComponent(message)}`;
   document.getElementById('modal-container').innerHTML = `
@@ -6334,8 +6337,8 @@ function renderApplyPage() {
   container.innerHTML = `
     <div class="max-w-md mx-auto">
       <div class="text-center mb-6">
-        <div class="w-14 h-14 bg-blue-700 rounded-xl mx-auto flex items-center justify-center text-white font-bold text-lg mb-3">G&amp;P</div>
-        <h1 class="text-xl font-bold text-slate-900">G &amp; P Finance</h1>
+        <div class="w-14 h-14 bg-blue-700 rounded-xl mx-auto flex items-center justify-center text-white font-bold text-lg mb-3">GPL</div>
+        <h1 class="text-xl font-bold text-slate-900">GPL Finance</h1>
         <p class="text-sm text-slate-500 mt-1">Online Loan Application</p>
       </div>
 
@@ -6373,7 +6376,7 @@ function renderApplyPage() {
       <div class="bg-white rounded-xl border border-slate-200 p-4 mb-4">
         <label class="flex items-start gap-3 cursor-pointer">
           <input type="checkbox" id="app-consent" onchange="updateApplySubmitState()" style="margin-top:3px; width:18px; height:18px;">
-          <span class="text-xs text-slate-600">I confirm the information provided is true and correct, and I consent to G &amp; P Finance processing my personal information and documents for the purpose of assessing this loan application, in line with applicable Namibian law.</span>
+          <span class="text-xs text-slate-600">I confirm the information provided is true and correct, and I consent to GPL Finance processing my personal information and documents for the purpose of assessing this loan application, in line with applicable Namibian law.</span>
         </label>
       </div>
 
@@ -6381,7 +6384,7 @@ function renderApplyPage() {
       <div id="apply-hint" class="text-center text-xs text-slate-500 mt-3">Fill in all fields and add all documents to submit.</div>
 
       <div class="text-center text-xs text-slate-500 mt-6 mb-4">
-        Your documents are stored securely and are only visible to G &amp; P Finance staff.
+        Your documents are stored securely and are only visible to GPL Finance staff.
       </div>
     </div>
   `;
@@ -6563,7 +6566,7 @@ async function submitApplication() {
         <h1 class="text-xl font-bold text-slate-900">Application Received</h1>
         <p class="text-sm text-slate-600 mt-2">Thank you, ${escapeHtml(name)}.</p>
         <p class="text-sm text-slate-600 mt-1">Your reference number is <strong>APP-${appId.substring(0, 8).toUpperCase()}</strong>.</p>
-        <p class="text-sm text-slate-600 mt-1">G &amp; P Finance will review your application and contact you on WhatsApp.</p>
+        <p class="text-sm text-slate-600 mt-1">GPL Finance will review your application and contact you on WhatsApp.</p>
       </div>
     `;
   } catch (e) {
@@ -6577,7 +6580,7 @@ async function submitApplication() {
 // ADMIN: APPLICATIONS VIEW
 // -----------------------------------------------------
 function applyPageUrl() {
-  return window.location.origin + window.location.pathname + '?apply=1';
+  return PUBLIC_APP_URL + '?apply=1';
 }
 
 function copyApplyLink() {
@@ -6585,7 +6588,7 @@ function copyApplyLink() {
 }
 
 function shareApplyLinkWhatsApp() {
-  const message = `Apply for a loan with G & P Finance online — complete the form and upload your documents here:\n${applyPageUrl()}`;
+  const message = `Apply for a loan with GPL Finance online — complete the form and upload your documents here:\n${applyPageUrl()}`;
   window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank');
 }
 
@@ -6985,11 +6988,11 @@ function notifyApplicantRejection(appId) {
   const firstName = (app.fullName || '').split(' ')[0];
   const message =
     `Dear ${firstName},\n\n` +
-    `Thank you for your loan application to G & P Finance (Ref: ${applicationRef(app)}).\n\n` +
+    `Thank you for your loan application to GPL Finance (Ref: ${applicationRef(app)}).\n\n` +
     `After careful review, we regret to inform you that your application was not successful at this time.\n\n` +
     `Reason: ${app.rejectionReason || 'Requirements not met'}\n\n` +
     `You are welcome to contact us for more information, or to apply again once the above has been addressed.\n\n` +
-    `Kind regards,\nG & P Finance`;
+    `Kind regards,\nGPL Finance`;
   closeModal();
   openWhatsApp(app.phone, message);
 }

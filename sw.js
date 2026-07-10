@@ -1,5 +1,5 @@
-// G & P Finance Service Worker v16 (PDF pages rendered in-app)
-const CACHE_NAME = 'gp-finance-v16';
+// GPL Finance Service Worker v17 (GPL Finance rebrand)
+const CACHE_NAME = 'gpl-finance-v17';
 const APP_SHELL = [
   './manifest.json',
   'https://cdn.tailwindcss.com',
@@ -91,7 +91,7 @@ self.addEventListener('message', event => {
 // PUSH NOTIFICATION HANDLING
 // =====================================================
 self.addEventListener('push', event => {
-  let payload = { title: 'G & P Finance', body: 'New notification', data: {} };
+  let payload = { title: 'GPL Finance', body: 'New notification', data: {} };
   try {
     if (event.data) payload = { ...payload, ...event.data.json() };
   } catch (e) {
@@ -110,7 +110,7 @@ self.addEventListener('push', event => {
   };
 
   event.waitUntil(
-    self.registration.showNotification(payload.title || 'G & P Finance', options)
+    self.registration.showNotification(payload.title || 'GPL Finance', options)
   );
 });
 
