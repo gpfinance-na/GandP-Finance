@@ -327,7 +327,7 @@ function clientRefById(clientId) {
 // =====================================================
 async function loadData() {
   try {
-    const [clientsRes, loansRes, paymentsRes, productsRes, settingsRes, auditRes, profilesRes, linksRes, applicationsRes] = await Promise.all([
+    const [clientsRes, loansRes, paymentsRes, productsRes, settingsRes, auditRes, profilesRes, linksRes, applicationsRes, capitalRes] = await Promise.all([
       db.from('clients').select('*').order('registration_date', {ascending: false}),
       db.from('loans').select('*').order('disbursement_date', {ascending: false}),
       db.from('payments').select('*').order('payment_date', {ascending: false}),
@@ -336,7 +336,8 @@ async function loadData() {
       db.from('audit').select('*').order('timestamp', {ascending: false}).limit(500),
       db.from('profiles').select('*'),
       db.from('client_links').select('*').order('created_at', {ascending: false}),
-      db.from('loan_applications').select('*').order('submitted_at', {ascending: false})
+      db.from('loan_applications').select('*').order('submitted_at', {ascending: false}),
+      db.from('capital_investments').select('*').order('invested_on', {ascending: false})
     ]);
     state.clients = (clientsRes.data || []).map(snakeToCamel);
     state.loans = (loansRes.data || []).map(snakeToCamel);
@@ -347,6 +348,7 @@ async function loadData() {
     state.users = (profilesRes.data || []).map(snakeToCamel);
     state.clientLinks = (linksRes.data || []).map(snakeToCamel);
     state.applications = (applicationsRes.data || []).map(snakeToCamel);
+    state.capital = (capitalRes.data || []).map(snakeToCamel);
     // Normalize field names
     if (state.settings.penaltyConfig) state.settings.penalty = state.settings.penaltyConfig;
     if (!state.settings.penalty) state.settings.penalty = { enabled: false, type: 'percentage', amount: 5, basis: 'instalment', frequency: 'monthly', gracePeriodDays: 3, maxPenaltyPercent: 100 };
@@ -377,10 +379,10 @@ async function saveSettings() {
 
 async function saveTable(name) {
   // Reload from Supabase to sync state
-  const tableMap = { clients: 'clients', loans: 'loans', payments: 'payments', products: 'products', audit: 'audit', users: 'profiles', clientLinks: 'client_links', applications: 'loan_applications' };
+  const tableMap = { clients: 'clients', loans: 'loans', payments: 'payments', products: 'products', audit: 'audit', users: 'profiles', clientLinks: 'client_links', applications: 'loan_applications', capital: 'capital_investments' };
   const table = tableMap[name];
   if (!table) return;
-  const orderMap = { clients: 'registration_date', loans: 'disbursement_date', payments: 'payment_date', audit: 'timestamp', clientLinks: 'created_at', applications: 'submitted_at' };
+  const orderMap = { clients: 'registration_date', loans: 'disbursement_date', payments: 'payment_date', audit: 'timestamp', clientLinks: 'created_at', applications: 'submitted_at', capital: 'invested_on' };
   let q = db.from(table).select('*');
   if (orderMap[name]) q = q.order(orderMap[name], { ascending: false });
   if (name === 'audit') q = q.limit(500);
@@ -744,6 +746,7 @@ function buildNav() {
     { id: 'reports', label: 'Reports', icon: 'M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z', show: can('read','reports') },
     { id: 'users', label: 'Users', icon: 'M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z', show: can('read','users') },
     { id: 'audit', label: 'Audit Log', icon: 'M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z', show: can('read','audit') },
+    { id: 'capital', label: 'My Capital', icon: 'M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z', show: isCapitalOwner(), badge: 0 },
     { id: 'data', label: 'Backup & Export', icon: 'M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4', show: state.currentUser?.role === 'Administrator' },
     { id: 'settings', label: 'Settings', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065zM15 12a3 3 0 11-6 0 3 3 0 016 0z', show: state.currentUser?.role === 'Administrator' }
   ];
@@ -798,6 +801,7 @@ function render() {
   else if (v === 'reports') c.innerHTML = renderReports();
   else if (v === 'users') c.innerHTML = renderUsers();
   else if (v === 'audit') c.innerHTML = renderAudit();
+  else if (v === 'capital') c.innerHTML = renderCapital();
   else if (v === 'data') c.innerHTML = renderDataManagement();
   else if (v === 'settings') c.innerHTML = renderSettings();
   // Init lender signature pad when on the Signature settings tab
@@ -817,7 +821,7 @@ function render() {
     const titles = {
       dashboard: 'Dashboard', loans: 'Loans', clients: 'Clients', applications: 'Applications',
       payments: 'Payments', reminders: 'Reminders', reports: 'Reports',
-      users: 'Users', audit: 'Audit Log', data: 'Backup & Export', settings: 'Settings'
+      users: 'Users', audit: 'Audit Log', capital: 'My Capital', data: 'Backup & Export', settings: 'Settings'
     };
     titleEl.textContent = titles[v] || 'G & P Finance';
   }
@@ -6665,6 +6669,135 @@ function deleteApplication(appId) {
   });
 }
 
+
+// =====================================================
+// MY CAPITAL — private capital investment tracking
+// Visible only on Silvanus's profile; the database (RLS)
+// additionally guarantees each user can only ever see
+// entries they created themselves.
+// =====================================================
+state.capital = state.capital || [];
+
+function isCapitalOwner() {
+  const u = state.currentUser;
+  if (!u || u.role !== 'Administrator') return false;
+  return /silvanus|uunona/i.test(u.fullName || '');
+}
+
+function renderCapital() {
+  if (!isCapitalOwner()) return '<div class="card p-8 text-center text-sm text-slate-500">This section is not available on your profile.</div>';
+  const entries = (state.capital || []).slice().sort((a, b) => (b.investedOn || '').localeCompare(a.investedOn || ''));
+  const total = entries.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
+  const totalDisbursed = state.loans.reduce((s, l) => s + (parseFloat(l.principal) || 0), 0);
+  const last = entries[0];
+  return `
+    <div class="space-y-5">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold text-slate-900">My Capital</h1>
+          <p class="text-sm text-slate-500 mt-1">Capital you have invested into the business. Only visible on your profile.</p>
+        </div>
+        <button onclick="openCapitalForm()" class="btn-primary">+ Add Capital Investment</button>
+      </div>
+
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div class="card p-4"><div class="text-xs text-slate-500 uppercase">Total Capital Invested</div><div class="text-2xl font-bold text-blue-800 mt-1">${fmt(total)}</div></div>
+        <div class="card p-4"><div class="text-xs text-slate-500 uppercase">Contributions</div><div class="text-2xl font-bold text-slate-900 mt-1">${entries.length}</div></div>
+        <div class="card p-4"><div class="text-xs text-slate-500 uppercase">Last Investment</div><div class="text-lg font-bold text-slate-900 mt-1">${last ? fmtDate(last.investedOn) : '—'}</div>${last ? `<div class="text-xs text-slate-500">${fmt(last.amount)}</div>` : ''}</div>
+        <div class="card p-4"><div class="text-xs text-slate-500 uppercase">Total Loaned Out (all time)</div><div class="text-lg font-bold text-slate-900 mt-1">${fmt(totalDisbursed)}</div><div class="text-xs text-slate-500">Principal of all loans</div></div>
+      </div>
+
+      <div class="card overflow-hidden">
+        ${entries.length === 0 ? `
+          <div class="p-10 text-center text-sm text-slate-500">No capital investments recorded yet. Tap "+ Add Capital Investment" to record your first contribution.</div>
+        ` : `
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead><tr class="text-left text-xs text-slate-500 uppercase border-b border-slate-200">
+              <th class="px-4 py-3">Date Invested</th><th class="px-4 py-3">Amount</th><th class="px-4 py-3">Notes</th><th class="px-4 py-3"></th>
+            </tr></thead>
+            <tbody>
+              ${entries.map(e => `
+                <tr class="border-b border-slate-100 hover:bg-slate-50">
+                  <td class="px-4 py-3 whitespace-nowrap">${fmtDate(e.investedOn)}</td>
+                  <td class="px-4 py-3 font-medium text-slate-900">${fmt(e.amount)}</td>
+                  <td class="px-4 py-3 text-slate-600">${escapeHtml(e.notes || '—')}</td>
+                  <td class="px-4 py-3 text-right whitespace-nowrap">
+                    <button onclick="openCapitalForm('${e.id}')" class="btn-secondary text-xs">Edit</button>
+                    <button onclick="deleteCapital('${e.id}')" class="text-xs text-red-600 hover:text-red-700 px-2 py-1.5 rounded hover:bg-red-50 font-medium">Delete</button>
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+            <tfoot><tr class="bg-slate-50 font-semibold">
+              <td class="px-4 py-3">Total</td><td class="px-4 py-3 text-blue-800">${fmt(total)}</td><td colspan="2"></td>
+            </tr></tfoot>
+          </table>
+        </div>`}
+      </div>
+    </div>
+  `;
+}
+
+function openCapitalForm(editId) {
+  if (!isCapitalOwner()) return;
+  const editing = editId ? (state.capital || []).find(e => e.id === editId) : null;
+  document.getElementById('modal-container').innerHTML = `
+    <div class="fixed inset-0 modal-backdrop flex items-center justify-center z-50 p-4" onclick="if(event.target===this) closeModal()">
+      <div class="bg-white rounded-xl shadow-xl w-full max-w-md">
+        <div class="px-6 py-4 border-b border-slate-200 flex justify-between items-center">
+          <h2 class="font-semibold text-lg">${editing ? 'Edit Capital Investment' : 'Add Capital Investment'}</h2>
+          <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600">✕</button>
+        </div>
+        <div class="p-6 space-y-4">
+          <div><label>Date Invested *</label><input type="date" id="cap-date" value="${editing?.investedOn || today()}" required></div>
+          <div><label>Amount (N$) *</label><input type="number" id="cap-amount" min="0.01" step="0.01" value="${editing?.amount || ''}" placeholder="e.g. 50000" required></div>
+          <div><label>Notes</label><input type="text" id="cap-notes" value="${escapeHtml(editing?.notes || '')}" placeholder="e.g. Starting capital, top-up for December demand"></div>
+        </div>
+        <div class="px-6 py-4 border-t border-slate-200 flex justify-end gap-2">
+          <button onclick="closeModal()" class="btn-secondary">Cancel</button>
+          <button onclick="saveCapital('${editId || ''}')" class="btn-primary">${editing ? 'Save Changes' : 'Add Investment'}</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+async function saveCapital(editId) {
+  if (!isCapitalOwner()) return;
+  const investedOn = document.getElementById('cap-date').value;
+  const amount = parseFloat(document.getElementById('cap-amount').value);
+  const notes = document.getElementById('cap-notes').value.trim() || null;
+  if (!investedOn || !amount || amount <= 0) { showAlert('Please enter the date and a valid amount.'); return; }
+  const record = { invested_on: investedOn, amount, notes };
+  if (editId) {
+    const { error } = await db.from('capital_investments').update(record).eq('id', editId);
+    if (error) { showAlert('Save failed: ' + error.message); return; }
+    await logAudit('update', 'capital', editId, { investedOn, amount });
+  } else {
+    record.created_by = state.currentUser.id;
+    const { data, error } = await db.from('capital_investments').insert(record).select().single();
+    if (error) { showAlert('Save failed: ' + error.message); return; }
+    await logAudit('create', 'capital', data.id, { investedOn, amount });
+  }
+  await saveTable('capital');
+  closeModal();
+  render();
+}
+
+function deleteCapital(entryId) {
+  if (!isCapitalOwner()) return;
+  const e = (state.capital || []).find(x => x.id === entryId);
+  if (!e) return;
+  confirmAction(`Delete this capital entry of ${fmt(e.amount)} dated ${fmtDate(e.investedOn)}?\n\nThis cannot be undone.`, async () => {
+    const { error } = await db.from('capital_investments').delete().eq('id', entryId);
+    if (error) { showAlert('Delete failed: ' + error.message); return; }
+    await logAudit('delete', 'capital', entryId, { snapshot: { investedOn: e.investedOn, amount: e.amount } });
+    await saveTable('capital');
+    closeModal();
+    render();
+  });
+}
 
 // =====================================================
 // INIT

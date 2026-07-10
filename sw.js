@@ -1,5 +1,5 @@
-// G & P Finance Service Worker v7 (network-first HTML + push + applications + reliable uploads + approval WhatsApp)
-const CACHE_NAME = 'gp-finance-v7';
+// G & P Finance Service Worker v8 (adds private capital tracking)
+const CACHE_NAME = 'gp-finance-v8';
 const APP_SHELL = [
   './manifest.json',
   'https://cdn.tailwindcss.com',
