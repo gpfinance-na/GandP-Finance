@@ -6956,9 +6956,19 @@ async function approveApplication(appId) {
   );
 }
 
+function applicationMissingDocs(app) {
+  const pages = app.documentPages || {};
+  const urlMap = { selfie: app.selfieUrl, id_front: app.idFrontUrl, id_back: app.idBackUrl, income_document: app.incomeDocumentUrl, bank_statement: app.bankStatementUrl };
+  return APPLY_DOC_TYPES.filter(d => [urlMap[d.key], ...(pages[d.key] || [])].filter(u => u).length === 0).map(d => d.label);
+}
+
 function openRejectApplication(appId) {
   const app = (state.applications || []).find(a => a.id === appId);
   if (!app) return;
+  const missingDocs = applicationMissingDocs(app);
+  const missingReason = missingDocs.length
+    ? `Missing documents: ${missingDocs.join(', ')}. Please send us these documents on WhatsApp, or submit a new application with them attached.`
+    : null;
   const quickReasons = [
     'Affordability — income does not support the requested loan',
     'Bank statement incomplete — full 3 months required',
@@ -6979,6 +6989,11 @@ function openRejectApplication(appId) {
             <label>Reason for rejection *</label>
             <textarea id="reject-reason" rows="3" placeholder="Type a reason or pick one below"></textarea>
           </div>
+          ${missingReason ? `
+          <div class="bg-red-50 border border-red-200 rounded-lg p-3">
+            <div class="text-xs font-medium text-red-900 mb-2">This application is missing: ${escapeHtml(missingDocs.join(', '))}</div>
+            <button onclick="document.getElementById('reject-reason').value=${JSON.stringify(missingReason).replace(/"/g, '&quot;')}" class="text-xs bg-white border border-red-300 text-red-800 hover:bg-red-100 rounded-full px-3 py-1.5">Use missing documents as the reason</button>
+          </div>` : ''}
           <div class="flex flex-wrap gap-2">
             ${quickReasons.map(r => `<button onclick="document.getElementById('reject-reason').value=${JSON.stringify(r).replace(/"/g, '&quot;')}" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-full px-3 py-1.5 text-left">${escapeHtml(r)}</button>`).join('')}
           </div>
