@@ -187,7 +187,7 @@
 <div id="login-container" class="hidden min-h-screen flex items-center justify-center p-4">
   <div class="card w-full max-w-md p-8">
     <div class="text-center mb-6">
-      <div class="w-14 h-14 bg-blue-700 rounded-xl mx-auto flex items-center justify-center text-white font-bold text-xl mb-3">GPL</div>
+      <div id="app-logo-login" class="w-14 h-14 bg-blue-700 rounded-xl mx-auto flex items-center justify-center text-white font-bold text-xl mb-3">GPL</div>
       <h1 class="text-xl font-bold text-slate-900">GPL Finance</h1>
       <p class="text-sm text-slate-500 mt-1" id="login-subtitle">Sign in to continue</p>
     </div>
@@ -203,7 +203,7 @@
   <aside id="sidebar" class="w-64 bg-white border-r border-slate-200 flex flex-col">
     <div class="p-6 border-b border-slate-200 flex items-center justify-between">
       <div class="flex items-center gap-2">
-        <div class="w-8 h-8 bg-blue-700 rounded-lg flex items-center justify-center text-white font-bold text-xs">GPL</div>
+        <div id="app-logo-sidebar" class="w-8 h-8 bg-blue-700 rounded-lg flex items-center justify-center text-white font-bold text-xs">GPL</div>
         <div>
           <div class="font-semibold text-slate-900">GPL Finance</div>
           <div class="text-xs text-slate-500">Loan Management</div>
@@ -233,7 +233,7 @@
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
       </button>
       <div class="flex items-center gap-2">
-        <div class="w-7 h-7 bg-blue-700 rounded-lg flex items-center justify-center text-white font-bold" style="font-size:10px">GPL</div>
+        <div id="app-logo-mobile" class="w-7 h-7 bg-blue-700 rounded-lg flex items-center justify-center text-white font-bold" style="font-size:10px">GPL</div>
         <div class="font-semibold text-slate-900 text-sm" id="mobile-view-title">GPL Finance</div>
       </div>
       <button id="mobile-notification-bell" onclick="toggleNotifications()" aria-label="Notifications" style="position:relative; background:none; border:none; padding:6px; cursor:pointer; color:#475569;">
@@ -349,6 +349,7 @@ async function loadData() {
     state.payments = (paymentsRes.data || []).map(snakeToCamel);
     state.products = (productsRes.data || []).map(snakeToCamel);
     state.settings = settingsRes.data ? snakeToCamel(settingsRes.data) : {};
+    if (state.settings.logo) localStorage.setItem('gpl_company_logo', state.settings.logo);
     state.audit = (auditRes.data || []).map(snakeToCamel);
     state.users = (profilesRes.data || []).map(snakeToCamel);
     state.clientLinks = (linksRes.data || []).map(snakeToCamel);
@@ -378,9 +379,14 @@ async function saveSettings() {
     default_rate: state.settings.defaultRate,
     default_term: state.settings.defaultTerm,
     penalty_config: state.settings.penalty || {},
+    logo: state.settings.logo || null,
     updated_by: state.currentUser?.id
   };
   const { error } = await db.from('settings').update(record).eq('id', 1);
+  if (error && /logo/i.test(error.message)) {
+    showAlert('The database needs a one-time update to store the logo. Run this in the Supabase SQL Editor, then save again:\n\nalter table public.settings add column if not exists logo text;', 'One-Time Setup Needed');
+    throw error;
+  }
   if (error) { showAlert('Settings save failed: ' + error.message, 'Storage Error'); throw error; }
 }
 
@@ -839,10 +845,53 @@ function navigate(view) {
   render();
 }
 
+// =====================================================
+// COMPANY LOGO
+// Stored as a small image in settings; shown in the app header, the
+// login screen (cached locally so it appears before sign-in), and on
+// PDF documents (agreements and receipts).
+// =====================================================
+function applyCompanyLogo() {
+  const logo = state.settings?.logo || localStorage.getItem('gpl_company_logo') || '';
+  ['app-logo-login', 'app-logo-sidebar', 'app-logo-mobile'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (logo) {
+      el.innerHTML = `<img src="${logo}" alt="logo" style="width:100%; height:100%; object-fit:contain; border-radius:inherit;">`;
+      el.classList.remove('bg-blue-700');
+      el.style.background = 'white';
+    } else {
+      el.innerHTML = 'GPL';
+      el.classList.add('bg-blue-700');
+      el.style.background = '';
+    }
+  });
+  // Preload for PDF generation (needs the image dimensions synchronously)
+  if (logo && (!window._logoImg || window._logoImg.src !== logo)) {
+    window._logoImg = new Image();
+    window._logoImg.src = logo;
+  }
+  if (!logo) window._logoImg = null;
+}
+
+// Draws the logo centred at the top of a PDF; returns the updated y position.
+function addPdfLogo(doc, s, pageW, y) {
+  const logo = s.logo || state.settings?.logo;
+  if (!logo || !window._logoImg?.complete || !window._logoImg.naturalHeight) return y;
+  try {
+    const ratio = window._logoImg.naturalWidth / window._logoImg.naturalHeight;
+    const h = 14;
+    const w = Math.min(h * ratio, 60);
+    doc.addImage(logo, 'PNG', pageW / 2 - w / 2, y - 4, w, h);
+    return y + h + 2;
+  } catch (e) { return y; }
+}
+
 function renderApp() {
-  if (!state.currentUser) { renderLogin(); return; }
+  if (!state.currentUser) { renderLogin(); applyCompanyLogo(); return; }
   document.getElementById('login-container').classList.add('hidden');
   document.getElementById('app-container').classList.remove('hidden');
+  applyCompanyLogo();
   buildNav();
   buildUserInfo();
   // Refresh schedules on app load
@@ -2821,6 +2870,7 @@ function generateLoanAgreement(loanId) {
 
   // ---- HEADER ----
   doc.setFontSize(13).setFont('helvetica', 'bold');
+  y = addPdfLogo(doc, s, pageW, y);
   doc.text(s.companyName || 'GPL Finance', pageW/2, y, { align: 'center' }); y += 5;
   doc.setFontSize(9).setFont('helvetica', 'normal');
   if (s.namfisaReg) { doc.text(`Registered Microlender · NAMFISA Reg. No.: ${s.namfisaReg}`, pageW/2, y, { align: 'center' }); y += 4; }
@@ -3326,6 +3376,7 @@ function generateReceipt(paymentId) {
 
   // Header
   doc.setFontSize(13).setFont('helvetica', 'bold');
+  y = addPdfLogo(doc, s, pageW, y);
   doc.text(s.companyName || 'GPL Finance', pageW/2, y, { align: 'center' }); y += 5;
   doc.setFontSize(8).setFont('helvetica', 'normal');
   if (s.namfisaReg) { doc.text(`NAMFISA Reg. No.: ${s.namfisaReg}`, pageW/2, y, { align: 'center' }); y += 3.5; }
@@ -3512,6 +3563,20 @@ function renderSettingsCompany() {
     <div class="card p-6 max-w-2xl">
       <div class="space-y-4">
         <div>
+          <label>Company Logo</label>
+          <div class="flex items-center gap-4 mt-1">
+            <div id="s-logo-preview" class="w-16 h-16 rounded-xl border border-slate-200 flex items-center justify-center overflow-hidden ${s.logo ? 'bg-white' : 'bg-blue-700'}">
+              ${s.logo ? `<img src="${s.logo}" style="width:100%; height:100%; object-fit:contain;">` : '<span class="text-white font-bold">GPL</span>'}
+            </div>
+            <div class="space-y-2">
+              <input type="file" id="s-logo-file" accept="image/*" class="hidden" onchange="handleLogoUpload(this)">
+              <button onclick="document.getElementById('s-logo-file').click()" class="btn-secondary text-sm">Choose Logo...</button>
+              ${s.logo ? '<button onclick="removeCompanyLogo()" class="btn-secondary text-sm text-red-700 ml-2">Remove</button>' : ''}
+              <div class="text-xs text-slate-500">PNG or JPG. Shown in the app and on loan agreements and receipts. Remember to press Save below.</div>
+            </div>
+          </div>
+        </div>
+        <div>
           <label>Company Name *</label>
           <input type="text" id="s-companyName" value="${escapeHtml(s.companyName || '')}" placeholder="e.g. GPL Finance (Pty) Ltd">
         </div>
@@ -3652,7 +3717,41 @@ function renderSettingsPenalty() {
 }
 
 
+// Read the chosen image, shrink it to a sensible size, keep it pending
+// until the user presses Save.
+function handleLogoUpload(input) {
+  const file = input.files && input.files[0];
+  input.value = '';
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) { showAlert('Logo image is too large — please use an image under 5MB.'); return; }
+  const reader = new FileReader();
+  reader.onload = () => {
+    const img = new Image();
+    img.onload = () => {
+      const maxH = 160;
+      const scale = Math.min(1, maxH / img.height);
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      window._pendingLogo = canvas.toDataURL('image/png');
+      const prev = document.getElementById('s-logo-preview');
+      if (prev) { prev.classList.remove('bg-blue-700'); prev.classList.add('bg-white'); prev.innerHTML = `<img src="${window._pendingLogo}" style="width:100%; height:100%; object-fit:contain;">`; }
+    };
+    img.onerror = () => showAlert('That file could not be read as an image.');
+    img.src = reader.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function removeCompanyLogo() {
+  window._pendingLogo = null;
+  const prev = document.getElementById('s-logo-preview');
+  if (prev) { prev.classList.add('bg-blue-700'); prev.classList.remove('bg-white'); prev.innerHTML = '<span class="text-white font-bold">GPL</span>'; }
+}
+
 async function saveSettingsForm() {
+  if (window._pendingLogo !== undefined) state.settings.logo = window._pendingLogo;
   state.settings.companyName = document.getElementById('s-companyName').value.trim();
   state.settings.namfisaReg = document.getElementById('s-namfisaReg').value.trim();
   state.settings.address = document.getElementById('s-address').value.trim();
@@ -3661,6 +3760,10 @@ async function saveSettingsForm() {
   state.settings.defaultRate = parseFloat(document.getElementById('s-defaultRate').value) || 20;
   state.settings.defaultTerm = parseInt(document.getElementById('s-defaultTerm').value) || 6;
   await saveSettings();
+  if (state.settings.logo) localStorage.setItem('gpl_company_logo', state.settings.logo);
+  else localStorage.removeItem('gpl_company_logo');
+  window._pendingLogo = undefined;
+  applyCompanyLogo();
   await logAudit('update', 'settings', 'company', { section: 'company' });
   showAlert('Company settings saved successfully.', 'Saved');
 }
