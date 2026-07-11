@@ -872,6 +872,56 @@ function applyCompanyLogo() {
     window._logoImg.src = logo;
   }
   if (!logo) window._logoImg = null;
+  applyDynamicAppIcons(logo);
+}
+
+// Rebuild the install icons (home-screen icon, browser tab) from the
+// company logo, so "Add to Home Screen" installs show the real brand.
+function applyDynamicAppIcons(logo) {
+  if (!logo || window._iconsApplied === logo) return;
+  const img = new Image();
+  img.onload = () => {
+    window._iconsApplied = logo;
+    const iconFor = (size) => {
+      const c = document.createElement('canvas');
+      c.width = c.height = size;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, size, size);
+      const pad = size * 0.12;
+      const ratio = img.width / img.height;
+      let w = size - 2 * pad, h = w / ratio;
+      if (h > size - 2 * pad) { h = size - 2 * pad; w = h * ratio; }
+      ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+      return c.toDataURL('image/png');
+    };
+    // Android / Chrome install icon via a rebuilt manifest
+    const manifest = {
+      name: 'GPL Finance',
+      short_name: 'GPL Finance',
+      description: 'Cash loan management system for GPL Finance',
+      start_url: new URL('./', location.href).href,
+      scope: new URL('./', location.href).href,
+      display: 'standalone',
+      orientation: 'portrait-primary',
+      background_color: '#f8fafc',
+      theme_color: '#1e40af',
+      icons: [
+        { src: iconFor(512), sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
+        { src: iconFor(192), sizes: '192x192', type: 'image/png', purpose: 'any' }
+      ]
+    };
+    const mLink = document.querySelector('link[rel="manifest"]');
+    if (mLink) mLink.href = 'data:application/manifest+json,' + encodeURIComponent(JSON.stringify(manifest));
+    // iPhone home-screen icon
+    let apple = document.querySelector('link[rel="apple-touch-icon"]');
+    if (!apple) { apple = document.createElement('link'); apple.rel = 'apple-touch-icon'; document.head.appendChild(apple); }
+    apple.href = iconFor(180);
+    // Browser tab icon
+    const fav = document.querySelector('link[rel="icon"]');
+    if (fav) fav.href = iconFor(64);
+  };
+  img.src = logo;
 }
 
 // Draws the logo centred at the top of a PDF; returns the updated y position.
