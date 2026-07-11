@@ -623,7 +623,9 @@ async function logout() {
   if (state.currentUser) {
     await logAudit('logout', 'user', state.currentUser.id, { username: state.currentUser.email });
   }
+  window._intentionalLogout = true;
   await db.auth.signOut();
+  window._intentionalLogout = false;
   state.currentUser = null;
   state.notifications = [];
   if (window._notificationChannel) {
@@ -645,6 +647,39 @@ async function restoreSession() {
   }
   return false;
 }
+
+// -----------------------------------------------------
+// SESSION-EXPIRY WATCHDOG
+// A login can silently die (refresh token expired/revoked) while the UI
+// still shows the user as signed in; the database then rejects every save
+// with a row-level security error. Detect it and force a clean re-login.
+// -----------------------------------------------------
+function handleSessionExpired() {
+  if (!state.currentUser) return;
+  state.currentUser = null;
+  state.notifications = [];
+  if (window._notificationChannel) {
+    db.removeChannel(window._notificationChannel);
+    window._notificationChannel = null;
+  }
+  document.title = window._originalTitle || 'GPL Finance';
+  renderApp();
+  showAlert('Your login session has expired. Please sign in again to continue.', 'Session Expired');
+}
+
+async function verifySessionAlive() {
+  if (!state.currentUser) return;
+  try {
+    const { data } = await db.auth.getSession();
+    if (!data?.session) handleSessionExpired();
+  } catch (e) { /* offline — leave the session alone */ }
+}
+
+db.auth.onAuthStateChange((event) => {
+  if (event === 'SIGNED_OUT' && state.currentUser && !window._intentionalLogout) handleSessionExpired();
+});
+document.addEventListener('visibilitychange', () => { if (!document.hidden) verifySessionAlive(); });
+setInterval(verifySessionAlive, 60000);
 
 // =====================================================
 // MODAL HELPERS
@@ -691,6 +726,11 @@ function closeConfirm() {
 }
 
 function showAlert(message, title = 'Notice') {
+  // A row-level security rejection almost always means the login died silently
+  if (/row-level security/i.test(message || '')) {
+    message += '\n\nThis usually means your login session has expired. Please sign out and sign back in, then try again.';
+    verifySessionAlive();
+  }
   const html = `
     <div class="fixed inset-0 modal-backdrop flex items-center justify-center z-[60] p-4" onclick="if(event.target===this) closeConfirm()">
       <div class="bg-white rounded-xl shadow-xl w-full max-w-md">
@@ -1097,10 +1137,13 @@ function openLoanForm(editId, preselectClientId) {
           </div>` : ''}
           <div>
             <label>Client *</label>
-            <select id="f-clientId" required ${editing ? 'disabled' : ''} onchange="showKycWarningForClient(this.value); prefillFirstPaymentFromApplication(this.value)">
-              <option value="">Select client...</option>
-              ${state.clients.map(c => `<option value="${c.id}" ${(editing?.clientId===c.id || (!editing && preselectClientId===c.id))?'selected':''}>${escapeHtml(c.fullName)} - ${escapeHtml(c.phone)}</option>`).join('')}
-            </select>
+            <input type="hidden" id="f-clientId" value="${editing?.clientId || (!editing && preselectClientId) || ''}">
+            <div class="relative">
+              <input type="text" id="f-clientSearch" placeholder="Type a name, phone or ID number to search..." autocomplete="off" ${editing ? 'disabled' : ''}
+                oninput="filterLoanClientList(this.value, true)" onfocus="filterLoanClientList(this.value, false)"
+                onblur="setTimeout(() => document.getElementById('client-search-results')?.classList.add('hidden'), 200)">
+              <div id="client-search-results" class="hidden absolute z-20 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-56 overflow-y-auto mt-1"></div>
+            </div>
             ${editing ? '<div class="text-xs text-slate-500 mt-1">Client cannot be changed on existing loans</div>' : ''}
             <div id="kyc-warning-box" class="mt-2"></div>
           </div>
@@ -1141,12 +1184,60 @@ function openLoanForm(editId, preselectClientId) {
     </div>
   `;
   document.getElementById('modal-container').innerHTML = modal;
+  const initialClient = state.clients.find(c => c.id === (editing?.clientId || preselectClientId));
+  if (initialClient) {
+    document.getElementById('f-clientSearch').value = `${initialClient.fullName} - ${initialClient.phone || ''}`;
+  }
   if (editing) updateLoanCalc();
   if (!editing) {
     document.getElementById('f-firstPayDate').value = defaultFirstPaymentDate(today());
     prefillFirstPaymentFromApplication(preselectClientId || '');
+    if (preselectClientId) prefillPrincipalFromApplication(preselectClientId);
   }
   if (!editing && preselectClientId) setTimeout(() => showKycWarningForClient(preselectClientId), 50);
+}
+
+function filterLoanClientList(query, clearSelection) {
+  const box = document.getElementById('client-search-results');
+  if (!box) return;
+  if (clearSelection) document.getElementById('f-clientId').value = '';
+  const q = (query || '').trim().toLowerCase();
+  const matches = state.clients.filter(c =>
+    !q ||
+    (c.fullName || '').toLowerCase().includes(q) ||
+    (c.phone || '').toLowerCase().includes(q) ||
+    (c.idNumber || '').includes(q)
+  ).slice(0, 25);
+  box.innerHTML = matches.length
+    ? matches.map(c => `
+        <button type="button" class="w-full text-left px-3 py-2 hover:bg-slate-50 text-sm border-b border-slate-100" onclick="selectLoanClient('${c.id}')">
+          <span class="font-medium text-slate-900">${escapeHtml(c.fullName)}</span>
+          <span class="text-xs text-slate-500 ml-2">${escapeHtml(c.phone || '')}${c.idNumber ? ' · ID ' + escapeHtml(c.idNumber) : ''}</span>
+        </button>`).join('')
+    : '<div class="px-3 py-2 text-sm text-slate-500">No matching clients</div>';
+  box.classList.remove('hidden');
+}
+
+function selectLoanClient(clientId) {
+  const c = state.clients.find(x => x.id === clientId);
+  if (!c) return;
+  document.getElementById('f-clientId').value = clientId;
+  document.getElementById('f-clientSearch').value = `${c.fullName} - ${c.phone || ''}`;
+  document.getElementById('client-search-results').classList.add('hidden');
+  showKycWarningForClient(clientId);
+  prefillFirstPaymentFromApplication(clientId);
+  prefillPrincipalFromApplication(clientId);
+}
+
+// Suggest the amount the client asked for on their most recent application
+function prefillPrincipalFromApplication(clientId) {
+  const el = document.getElementById('f-principal');
+  if (!el || el.value) return;
+  const apps = (state.applications || []).filter(a => a.clientId === clientId && a.amountRequested);
+  if (!apps.length) return;
+  apps.sort((a, b) => (b.submittedAt || '').localeCompare(a.submittedAt || ''));
+  el.value = apps[0].amountRequested;
+  updateLoanCalc();
 }
 
 function defaultFirstPaymentDate(disbDate) {
@@ -1211,7 +1302,8 @@ async function saveLoan(editId) {
   const purpose = document.getElementById('f-purpose').value;
   const productEl = document.getElementById('f-productId');
   const productId = productEl ? productEl.value : '';
-  if (!clientId || !principal || !rate || !term || !disbDate || !firstPayDate) { showAlert('Please fill all required fields.'); return; }
+  if (!clientId) { showAlert('Please choose a client — type to search, then tap the client in the list.'); return; }
+  if (!principal || !rate || !term || !disbDate || !firstPayDate) { showAlert('Please fill all required fields.'); return; }
   if (firstPayDate <= disbDate) { showAlert('The first payment date must be after the disbursement date.'); return; }
   const latestFirstPay = new Date(disbDate); latestFirstPay.setMonth(latestFirstPay.getMonth() + 2);
   if (firstPayDate > latestFirstPay.toISOString().split('T')[0]) { showAlert('The first payment date should be within two months of disbursement. Please check the date.'); return; }
@@ -1533,6 +1625,12 @@ async function saveClient(editId) {
   const phoneDigits = namibianDigits(document.getElementById('c-phone').value);
   if (!fullName || !idNumber || !phoneDigits) { showAlert('Full name, ID number and phone are required.'); return; }
   if (phoneDigits.length < 7) { showAlert('Please check the phone number — it looks too short. Enter the number without the leading 0 (e.g. 81 234 5678).'); return; }
+  // Every client must have a unique ID number
+  const duplicate = state.clients.find(c => c.id !== editId && (c.idNumber || '').trim() === idNumber);
+  if (duplicate) {
+    showAlert(`A client with ID number ${idNumber} already exists: ${duplicate.fullName}.\n\nEach client must have a unique ID number — open the existing client record instead of creating a new one.`, 'Duplicate ID Number');
+    return;
+  }
   const phone = '+264' + phoneDigits;
   const record = {
     full_name: fullName,
@@ -3195,11 +3293,10 @@ function downloadCurrentPdf() {
 
 function sendCurrentPdfWhatsApp() {
   if (!state.currentPdf?.whatsapp) return;
-  // Trigger download first so user has the file to attach
-  downloadCurrentPdf();
-  // Open WhatsApp shortly after
+  // Open WhatsApp with the message only — the Download button is there
+  // for anyone who wants the file itself.
   const { phone, message } = state.currentPdf.whatsapp;
-  setTimeout(() => openWhatsApp(phone, message), 400);
+  openWhatsApp(phone, message);
 }
 
 function generateReceipt(paymentId) {
@@ -4476,10 +4573,8 @@ function openEmail(toEmail, subject, body) {
 
 function sendCurrentPdfEmail() {
   if (!state.currentPdf?.email) return;
-  // Download PDF first so user can attach
-  downloadCurrentPdf();
   const { to, subject, body } = state.currentPdf.email;
-  setTimeout(() => openEmail(to, subject, body), 400);
+  openEmail(to, subject, body);
 }
 
 // =====================================================
