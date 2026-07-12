@@ -5236,11 +5236,40 @@ function checkPublicRoute() {
   const uploadToken = params.get('upload');
   const signToken = params.get('sign');
   const agreementToken = params.get('agreement');
-  if (params.has('apply')) { renderApplyPage(); return true; }
-  if (uploadToken) { renderUploadPage(uploadToken); return true; }
-  if (signToken) { renderSignaturePage(signToken); return true; }
-  if (agreementToken) { renderAgreementViewPage(agreementToken); return true; }
-  return false;
+  let isPublic = false;
+  if (params.has('apply')) { renderApplyPage(); isPublic = true; }
+  else if (uploadToken) { renderUploadPage(uploadToken); isPublic = true; }
+  else if (signToken) { renderSignaturePage(signToken); isPublic = true; }
+  else if (agreementToken) { renderAgreementViewPage(agreementToken); isPublic = true; }
+  // Swap the placeholder badge for the company logo once the page
+  // has rendered (retries cover the async pages).
+  if (isPublic) [300, 1200, 3000].forEach(ms => setTimeout(applyPublicBranding, ms));
+  return isPublic;
+}
+
+// Public pages run without a login, so the logo comes from a small
+// public lookup (get_public_branding) rather than the settings table.
+async function applyPublicBranding() {
+  try {
+    if (!window._publicBrandingLogo) {
+      let logo = localStorage.getItem('gpl_company_logo') || '';
+      if (!logo) {
+        const { data } = await db.rpc('get_public_branding');
+        const row = Array.isArray(data) ? data[0] : data;
+        if (row?.logo) logo = row.logo;
+      }
+      if (!logo) return;
+      window._publicBrandingLogo = logo;
+    }
+    const logo = window._publicBrandingLogo;
+    document.querySelectorAll('.public-logo-badge').forEach(el => {
+      if (el.querySelector('img')) return;
+      el.innerHTML = `<img src="${logo}" alt="logo" style="width:100%; height:100%; object-fit:contain; border-radius:inherit;">`;
+      el.classList.remove('bg-blue-700');
+      el.style.background = 'white';
+    });
+    applyDynamicAppIcons(logo);
+  } catch (e) { /* no branding available — keep the default badge */ }
 }
 
 async function renderUploadPage(token) {
@@ -5281,7 +5310,7 @@ async function renderUploadPage(token) {
   container.innerHTML = `
     <div class="max-w-md mx-auto">
       <div class="text-center mb-6">
-        <div class="w-14 h-14 bg-blue-700 rounded-xl mx-auto flex items-center justify-center text-white font-bold text-lg mb-3">GPL</div>
+        <div class="public-logo-badge w-14 h-14 bg-blue-700 rounded-xl mx-auto flex items-center justify-center text-white font-bold text-lg mb-3">GPL</div>
         <h1 class="text-xl font-bold text-slate-900">${companyName}</h1>
         <p class="text-sm text-slate-500 mt-1">${isTargeted ? 'Document Re-Upload' : 'Document Upload'}</p>
       </div>
@@ -5483,7 +5512,7 @@ async function renderSignaturePage(token) {
   container.innerHTML = `
     <div class="max-w-2xl mx-auto">
       <div class="text-center mb-6">
-        <div class="w-14 h-14 bg-blue-700 rounded-xl mx-auto flex items-center justify-center text-white font-bold text-lg mb-3">GPL</div>
+        <div class="public-logo-badge w-14 h-14 bg-blue-700 rounded-xl mx-auto flex items-center justify-center text-white font-bold text-lg mb-3">GPL</div>
         <h1 class="text-xl font-bold text-slate-900">${companyName}</h1>
         <p class="text-sm text-slate-500 mt-1">Loan Agreement — Sign to Confirm</p>
       </div>
@@ -5896,7 +5925,7 @@ async function renderAgreementViewPage(token) {
   container.innerHTML = `
     <div class="max-w-2xl mx-auto">
       <div class="text-center mb-6">
-        <div class="w-14 h-14 bg-blue-700 rounded-xl mx-auto flex items-center justify-center text-white font-bold text-lg mb-3">GPL</div>
+        <div class="public-logo-badge w-14 h-14 bg-blue-700 rounded-xl mx-auto flex items-center justify-center text-white font-bold text-lg mb-3">GPL</div>
         <h1 class="text-xl font-bold text-slate-900">${escapeHtml(companyName)}</h1>
         <p class="text-sm text-slate-500 mt-1">Your Signed Loan Agreement</p>
       </div>
@@ -7138,7 +7167,7 @@ function renderApplyPage() {
   container.innerHTML = `
     <div class="max-w-md mx-auto">
       <div class="text-center mb-6">
-        <div class="w-14 h-14 bg-blue-700 rounded-xl mx-auto flex items-center justify-center text-white font-bold text-lg mb-3">GPL</div>
+        <div class="public-logo-badge w-14 h-14 bg-blue-700 rounded-xl mx-auto flex items-center justify-center text-white font-bold text-lg mb-3">GPL</div>
         <h1 class="text-xl font-bold text-slate-900">GPL Finance</h1>
         <p class="text-sm text-slate-500 mt-1">Online Loan Application</p>
       </div>
