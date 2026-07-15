@@ -262,6 +262,7 @@
     <div class="p-4 border-t border-slate-200">
       <div id="user-info" class="text-sm"></div>
       <div id="storage-status" class="text-xs text-slate-500 mt-2"></div>
+      <div id="offline-badge" class="text-xs mt-1"></div>
     </div>
   </aside>
 
@@ -880,6 +881,7 @@ async function doLogin() {
   subscribeToNotifications();
   subscribeToDataChanges();
   maybeAutoBackup();
+  syncOfflinePayments();
   renderApp();
 }
 
@@ -2820,6 +2822,55 @@ function updatePaymentInfo() {
   if (!amountEl.value) amountEl.value = Math.min(loan.monthlyInstallment, outstanding).toFixed(2);
 }
 
+// -----------------------------------------------------
+// OFFLINE PAYMENT QUEUE — record payments in the field with no
+// signal; they save on the device and sync automatically when the
+// connection returns. Client-generated IDs make the sync idempotent
+// (a payment can never be uploaded twice).
+// -----------------------------------------------------
+function offlineQueue() {
+  try { return JSON.parse(localStorage.getItem('gpl_pending_payments') || '[]'); } catch (e) { return []; }
+}
+
+function updateOfflineBadge() {
+  const el = document.getElementById('offline-badge');
+  if (!el) return;
+  const n = offlineQueue().length;
+  el.innerHTML = n ? `<span class="text-amber-700 font-medium">⏳ ${n} payment(s) waiting to sync</span>` : '';
+}
+
+function queueOfflinePayment(record) {
+  const q = offlineQueue();
+  q.push(record);
+  localStorage.setItem('gpl_pending_payments', JSON.stringify(q));
+  updateOfflineBadge();
+}
+
+async function syncOfflinePayments() {
+  if (!state.currentUser) return;
+  const q = offlineQueue();
+  if (!q.length) return;
+  const remaining = [];
+  for (const rec of q) {
+    try {
+      const { error } = await db.from('payments').upsert(rec, { onConflict: 'id' });
+      if (error) { remaining.push(rec); continue; }
+      await logAudit('create', 'payment', rec.id, { amount: rec.amount, loanId: rec.loan_id, offlineSync: true });
+    } catch (e) { remaining.push(rec); }
+  }
+  localStorage.setItem('gpl_pending_payments', JSON.stringify(remaining));
+  const synced = q.length - remaining.length;
+  if (synced > 0) {
+    showToast(`${synced} offline payment(s) synced`);
+    await saveTable('payments');
+    refreshViewIfIdle();
+  }
+  updateOfflineBadge();
+}
+
+window.addEventListener('online', () => setTimeout(syncOfflinePayments, 1500));
+setInterval(syncOfflinePayments, 120000);
+
 async function savePayment(editId) {
   const loanId = document.getElementById('p-loanId').value;
   const amount = parseFloat(document.getElementById('p-amount').value);
@@ -2850,7 +2901,21 @@ async function savePayment(editId) {
       record.client_id = loan.clientId;
       record.created_by = state.currentUser?.id || null;
       const { data, error } = await db.from('payments').insert(record).select().single();
-      if (error) { showAlert('Save failed: ' + error.message); return; }
+      if (error) {
+        // No connection? Keep the payment on this device and sync later.
+        if (!navigator.onLine || /failed to fetch|network|load failed/i.test(error.message || '')) {
+          record.id = (crypto.randomUUID ? crypto.randomUUID() : 'off-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8));
+          queueOfflinePayment(record);
+          state.payments.unshift(snakeToCamel(record));
+          allocatePayments(loanId);
+          closeModal();
+          render();
+          showToast('No connection — payment saved on this device, will sync automatically');
+          return;
+        }
+        showAlert('Save failed: ' + error.message);
+        return;
+      }
       await logAudit('create', 'payment', data.id, { loanId, amount, method });
     }
     await saveTable('payments');
@@ -4924,7 +4989,7 @@ function renderReminders() {
       if (s.status === 'Paid' || (s.amountDue - s.amountPaid) <= 0.01) return;
       const balance = s.amountDue - s.amountPaid;
       const days = daysBetween(s.dueDate, today_);
-      if (days >= 0 && days <= 30) {
+      if (days >= 0 && days <= 120) {
         overdue.push({ loan: l, client: c, inst: s, daysOverdue: days, balance });
       } else if (days < 0 && days >= -7) {
         upcoming.push({ loan: l, client: c, inst: s, daysUntil: -days, balance });
@@ -4932,8 +4997,26 @@ function renderReminders() {
     });
   });
 
-  overdue.sort((a,b) => b.daysOverdue - a.daysOverdue);
+  // Priority score: who to chase first. Days late carry the most
+  // weight, then the amount, then the client's history.
+  overdue.forEach(item => {
+    let score = Math.min(item.daysOverdue, 60);
+    score += Math.min(item.balance / 100, 25);
+    const badHistory = state.loans.filter(l => l.clientId === item.client.id && (l.status === 'Defaulted' || l.status === 'Written Off')).length;
+    score += badHistory * 15;
+    const otherOverdueLoans = state.loans.filter(l => l.clientId === item.client.id && l.id !== item.loan.id && isOverdue(l)).length;
+    score += Math.min(otherOverdueLoans * 8, 16);
+    item.priorityScore = Math.round(score);
+    item.priorityTier = score >= 60 ? 'High' : score >= 30 ? 'Medium' : 'Low';
+  });
+  overdue.sort((a, b) => b.priorityScore - a.priorityScore);
   upcoming.sort((a,b) => a.daysUntil - b.daysUntil);
+  const tierChip = (item) => {
+    const cls = item.priorityTier === 'High' ? 'background:#fef2f2;color:#b91c1c;border:1px solid #fecaca'
+      : item.priorityTier === 'Medium' ? 'background:#fffbeb;color:#b45309;border:1px solid #fde68a'
+      : 'background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe';
+    return `<span style="${cls}; font-size:11px; font-weight:600; padding:2px 8px; border-radius:9999px; white-space:nowrap;" title="Score ${item.priorityScore}: days late + amount + client history">${item.priorityTier}</span>`;
+  };
 
   const buildReminderMsg = (item, isOverdueMsg) => {
     const co = state.settings.companyName || 'GPL Finance';
@@ -4972,9 +5055,10 @@ function renderReminders() {
       </div>
       ${overdue.length === 0 ? '<div class="p-12 text-center text-slate-500">No overdue payments. 🎉</div>' : `
         <table>
-          <thead><tr><th>Client</th><th>Phone</th><th>Loan Ref</th><th>Days Overdue</th><th>Amount Due</th><th class="text-right">Action</th></tr></thead>
+          <thead><tr><th>Priority</th><th>Client</th><th>Phone</th><th>Loan Ref</th><th>Days Overdue</th><th>Amount Due</th><th class="text-right">Action</th></tr></thead>
           <tbody>
             ${overdue.map((item, i) => `<tr>
+              <td>${tierChip(item)}</td>
               <td class="font-medium">${escapeHtml(item.client.fullName)}</td>
               <td>${escapeHtml(item.client.phone)}</td>
               <td class="font-mono text-xs">${loanRef(item.loan)}</td>
@@ -9219,6 +9303,8 @@ function deleteBankStatement(stId) {
     subscribeToNotifications();
     subscribeToDataChanges();
     maybeAutoBackup();
+    syncOfflinePayments();
+    updateOfflineBadge();
   }
   renderApp();
 })();
