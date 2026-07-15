@@ -1250,31 +1250,65 @@ function renderDashboard() {
   const recentLoans = [...state.loans].sort((a,b) => b.disbursementDate.localeCompare(a.disbursementDate)).slice(0, 5);
   const recentPayments = [...state.payments].sort((a,b) => b.paymentDate.localeCompare(a.paymentDate)).slice(0, 5);
 
+  // Act-now triage numbers
+  const pendingApps = pendingApplicationsCount();
+  const awaitingPayout = state.loans.filter(l => l.signedAt && !l.disbursedAt && l.status === 'Active').length;
+  let oldestOverdueDays = 0;
+  state.loans.forEach(l => {
+    if (l.status === 'Completed' || l.status === 'Written Off') return;
+    ensureSchedule(l).forEach(s => {
+      if ((s.amountDue - s.amountPaid) > 0.01 && s.dueDate < today_) oldestOverdueDays = Math.max(oldestOverdueDays, daysBetween(s.dueDate, today_));
+    });
+  });
+  let par30Risk = 0, par30Total = 0;
+  state.loans.forEach(l => {
+    if (l.status === 'Completed' || l.status === 'Written Off') return;
+    const out = loanOutstanding(l.id);
+    par30Total += out;
+    if (ensureSchedule(l).some(s => (s.amountDue - s.amountPaid) > 0.01 && daysBetween(s.dueDate, today_) > 30)) par30Risk += out;
+  });
+  const par30 = par30Total > 0 ? (par30Risk / par30Total) * 100 : 0;
+
   return `
     <div class="mb-8">
       <h1 class="text-2xl font-bold text-slate-900">Dashboard</h1>
       <p class="text-slate-500 text-sm mt-1">Overview of loan portfolio and collections</p>
     </div>
 
+    <div class="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">Act now</div>
+    <div class="grid grid-cols-4 gap-4 mb-6 kpi-grid">
+      <button onclick="navigate('reminders')" class="card p-5 text-left hover:border-blue-400" style="cursor:pointer; border-left:4px solid ${dueToday.length ? '#1e40af' : '#e2e8f0'}">
+        <div class="text-xs font-medium text-slate-500 uppercase">Due Today</div>
+        <div class="text-3xl font-bold text-blue-700 mt-2">${fmt(expectedToday)}</div>
+        <div class="text-xs text-slate-500 mt-1">${dueToday.length} instalment(s) · tap to send reminders</div>
+      </button>
+      <button onclick="navigate('reminders')" class="card p-5 text-left hover:border-red-400" style="cursor:pointer; border-left:4px solid ${overdueLoans.length ? '#dc2626' : '#e2e8f0'}">
+        <div class="text-xs font-medium text-slate-500 uppercase">Overdue</div>
+        <div class="text-3xl font-bold text-red-700 mt-2">${fmt(overdueAmount)}</div>
+        <div class="text-xs text-slate-500 mt-1">${overdueLoans.length} loan(s)${oldestOverdueDays ? ' · oldest ' + oldestOverdueDays + 'd' : ''} · tap to chase</div>
+      </button>
+      <button onclick="navigate('applications')" class="card p-5 text-left hover:border-amber-400" style="cursor:pointer; border-left:4px solid ${pendingApps ? '#d97706' : '#e2e8f0'}">
+        <div class="text-xs font-medium text-slate-500 uppercase">Pending Applications</div>
+        <div class="text-3xl font-bold text-amber-700 mt-2">${pendingApps}</div>
+        <div class="text-xs text-slate-500 mt-1">tap to review</div>
+      </button>
+      <button onclick="navigate('loans')" class="card p-5 text-left hover:border-green-400" style="cursor:pointer; border-left:4px solid ${awaitingPayout ? '#15803d' : '#e2e8f0'}">
+        <div class="text-xs font-medium text-slate-500 uppercase">Awaiting Payout</div>
+        <div class="text-3xl font-bold text-green-700 mt-2">${awaitingPayout}</div>
+        <div class="text-xs text-slate-500 mt-1">signed, money not yet sent</div>
+      </button>
+    </div>
+
+    <div class="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">Portfolio health</div>
     <div class="grid grid-cols-4 gap-4 mb-6 kpi-grid">
       <div class="card p-5"><div class="text-xs font-medium text-slate-500 uppercase">Active Loans</div><div class="text-3xl font-bold text-slate-900 mt-2">${activeLoans.length}</div><div class="text-xs text-slate-500 mt-1">${fmt(totalDisbursed)} disbursed</div></div>
       <div class="card p-5"><div class="text-xs font-medium text-slate-500 uppercase">Total Outstanding</div><div class="text-3xl font-bold text-blue-700 mt-2">${fmt(totalOutstanding)}</div><div class="text-xs text-slate-500 mt-1">Receivables</div></div>
       <div class="card p-5"><div class="text-xs font-medium text-slate-500 uppercase">Collections MTD</div><div class="text-3xl font-bold text-green-700 mt-2">${fmt(collectionsMTD)}</div><div class="text-xs text-slate-500 mt-1">${state.payments.filter(p => p.paymentDate.startsWith(thisMonth)).length} payments</div></div>
-      <div class="card p-5"><div class="text-xs font-medium text-slate-500 uppercase">Overdue</div><div class="text-3xl font-bold text-red-700 mt-2">${overdueLoans.length}</div><div class="text-xs text-slate-500 mt-1">${fmt(overdueAmount)} arrears</div></div>
-    </div>
-
-    <div class="card p-5 mb-6 bg-blue-50 border-blue-200">
-      <div class="flex justify-between items-center">
-        <div>
-          <div class="text-xs font-medium text-blue-900 uppercase">Expected Today</div>
-          <div class="text-2xl font-bold text-blue-900 mt-1">${fmt(expectedToday)}</div>
-          <div class="text-xs text-blue-700 mt-1">${dueToday.length} instalment(s) due today</div>
-        </div>
-        <div class="flex gap-2">
-          <button onclick="navigate('reminders')" class="btn-secondary">Send Reminders</button>
-          <button onclick="navigate('reports'); state.currentReportTab='daily'; render();" class="btn-primary">View Collection Sheet</button>
-        </div>
-      </div>
+      <button onclick="navigate('reports'); state.currentReportTab='par'; render();" class="card p-5 text-left" style="cursor:pointer;">
+        <div class="text-xs font-medium text-slate-500 uppercase">PAR 30</div>
+        <div class="text-3xl font-bold ${par30 > 10 ? 'text-red-700' : par30 > 5 ? 'text-amber-700' : 'text-slate-900'} mt-2">${par30.toFixed(1)}%</div>
+        <div class="text-xs text-slate-500 mt-1">${fmt(par30Risk)} at risk · tap for report</div>
+      </button>
     </div>
 
     ${renderDashboardBankCard()}
@@ -1909,6 +1943,147 @@ async function saveLoan(editId) {
 }
 
 // =====================================================
+// EARLY SETTLEMENT QUOTE
+// Suggests an interest rebate for instalments not yet due; staff can
+// adjust it, then send the quote to the client on WhatsApp.
+// =====================================================
+function openSettlementQuote(loanId) {
+  const loan = state.loans.find(l => l.id === loanId);
+  if (!loan) return;
+  const outstanding = loanOutstanding(loanId);
+  if (outstanding <= 0.01) { showAlert('This loan is already fully paid.'); return; }
+  const fee = loanEwalletFee(loan);
+  const monthlyInterest = Math.max(0, (loan.totalRepayable - loan.principal - fee) / (loan.termMonths || 1));
+  const today_ = today();
+  const futureUnpaid = ensureSchedule(loan).filter(s => s.dueDate > today_ && (s.amountDue - s.amountPaid) > 0.01).length;
+  const suggestedRebate = Math.round(Math.max(0, futureUnpaid - 1) * monthlyInterest * 100) / 100;
+  const validUntil = new Date(); validUntil.setDate(validUntil.getDate() + 7);
+  document.getElementById('modal-container').innerHTML = `
+    <div class="fixed inset-0 modal-backdrop flex items-center justify-center z-50 p-4" onclick="if(event.target===this) closeModal()">
+      <div class="bg-white rounded-xl shadow-xl w-full max-w-md">
+        <div class="px-6 py-4 border-b border-slate-200 flex justify-between items-center">
+          <h2 class="font-semibold text-lg">Settlement Quote — ${loanRef(loan)}</h2>
+          <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600">✕</button>
+        </div>
+        <div class="p-6 space-y-4">
+          <div class="bg-slate-50 rounded-lg p-4 text-sm space-y-1">
+            <div class="flex justify-between"><span class="text-slate-600">Outstanding balance</span><span class="font-medium">${fmt(outstanding)}</span></div>
+            <div class="flex justify-between"><span class="text-slate-600">Interest rebate</span><span class="font-medium text-green-700">− <span id="sq-rebate-show">${fmt(suggestedRebate)}</span></span></div>
+            <div class="flex justify-between border-t border-slate-200 pt-1 mt-1"><span class="font-medium">Settle today for</span><span class="font-bold text-lg" id="sq-total">${fmt(outstanding - suggestedRebate)}</span></div>
+          </div>
+          <div>
+            <label>Interest Rebate (N$)</label>
+            <input type="number" id="sq-rebate" min="0" step="0.01" value="${suggestedRebate}" oninput="updateSettlementCalc('${loanId}')">
+            <div class="text-xs text-slate-500 mt-1">Suggested: interest on the ${Math.max(0, futureUnpaid - 1)} instalment(s) not yet due. Adjust per your policy.</div>
+          </div>
+          <div>
+            <label>Quote Valid Until</label>
+            <input type="date" id="sq-valid" value="${validUntil.toISOString().split('T')[0]}">
+          </div>
+        </div>
+        <div class="px-6 py-4 border-t border-slate-200 flex justify-end gap-2">
+          <button onclick="closeModal()" class="btn-secondary">Close</button>
+          <button onclick="sendSettlementQuote('${loanId}')" class="btn-success">Send Quote on WhatsApp</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function updateSettlementCalc(loanId) {
+  const outstanding = loanOutstanding(loanId);
+  const rebate = Math.min(outstanding, Math.max(0, parseFloat(document.getElementById('sq-rebate')?.value) || 0));
+  const show = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  show('sq-rebate-show', fmt(rebate));
+  show('sq-total', fmt(outstanding - rebate));
+}
+
+async function sendSettlementQuote(loanId) {
+  const loan = state.loans.find(l => l.id === loanId);
+  const client = state.clients.find(c => c.id === loan.clientId);
+  if (!client?.phone) { showAlert('Client has no phone number on file.'); return; }
+  const outstanding = loanOutstanding(loanId);
+  const rebate = Math.min(outstanding, Math.max(0, parseFloat(document.getElementById('sq-rebate').value) || 0));
+  const settleFor = Math.round((outstanding - rebate) * 100) / 100;
+  const validUntil = document.getElementById('sq-valid').value;
+  const companyName = state.settings.companyName || 'GPL Finance';
+  const message = `Hello ${client.fullName.split(' ')[0]},\n\nEarly settlement quote for your loan ${loanRef(loan)} with ${companyName}:\n\nOutstanding balance: ${fmt(outstanding)}\nEarly settlement rebate: −${fmt(rebate)}\nSettle in full for: *${fmt(settleFor)}*\n\nThis quote is valid until ${fmtDate(validUntil)}. Pay the settlement amount by then and your loan is closed in full.\n\n${companyName}`;
+  await logAudit('settlement_quote', 'loan', loanId, { outstanding, rebate, settleFor, validUntil });
+  openWhatsApp(client.phone, message);
+}
+
+// =====================================================
+// RESCHEDULE REMAINING INSTALMENTS
+// Moves every unpaid instalment to a new payday pattern; the change
+// is logged with a reason.
+// =====================================================
+function openRescheduleForm(loanId) {
+  if (!requirePerm('update', 'loans')) return;
+  const loan = state.loans.find(l => l.id === loanId);
+  if (!loan) return;
+  const unpaid = ensureSchedule(loan).filter(s => (s.amountDue - s.amountPaid) > 0.01).length;
+  if (!unpaid) { showAlert('All instalments are paid — nothing to reschedule.'); return; }
+  const minDate = new Date(); minDate.setDate(minDate.getDate() + 1);
+  document.getElementById('modal-container').innerHTML = `
+    <div class="fixed inset-0 modal-backdrop flex items-center justify-center z-50 p-4" onclick="if(event.target===this) closeModal()">
+      <div class="bg-white rounded-xl shadow-xl w-full max-w-md">
+        <div class="px-6 py-4 border-b border-slate-200 flex justify-between items-center">
+          <h2 class="font-semibold text-lg">Reschedule — ${loanRef(loan)}</h2>
+          <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600">✕</button>
+        </div>
+        <div class="p-6 space-y-4">
+          <div class="text-sm text-slate-600">${unpaid} unpaid instalment(s) will be moved: the first to the date you choose, the rest monthly after it. Amounts do not change.</div>
+          <div>
+            <label>New Date for the Next Instalment *</label>
+            <input type="date" id="rs-date" min="${minDate.toISOString().split('T')[0]}">
+          </div>
+          <div>
+            <label>Reason *</label>
+            <textarea id="rs-reason" rows="2" placeholder="e.g. Client's payday moved to the 28th; agreed on WhatsApp on 12 Jul"></textarea>
+          </div>
+          <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-900">
+            The reason is stored in the audit log. If the change is substantial, consider sending a fresh agreement for signing.
+          </div>
+        </div>
+        <div class="px-6 py-4 border-t border-slate-200 flex justify-end gap-2">
+          <button onclick="closeModal()" class="btn-secondary">Cancel</button>
+          <button onclick="saveReschedule('${loanId}')" class="btn-warning">Reschedule Instalments</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+async function saveReschedule(loanId) {
+  clearFieldErrors();
+  const dateV = document.getElementById('rs-date').value;
+  const reason = document.getElementById('rs-reason').value.trim();
+  if (!dateV) { fieldError('rs-date', 'Choose the new date for the next instalment.'); return; }
+  if (dateV <= today()) { fieldError('rs-date', 'Must be a future date.'); return; }
+  if (!reason) { fieldError('rs-reason', 'A reason is required — it goes on the audit record.'); return; }
+  const loan = state.loans.find(l => l.id === loanId);
+  const sched = ensureSchedule(loan);
+  const next = new Date(dateV);
+  let moved = 0;
+  sched.forEach(s => {
+    if ((s.amountDue - s.amountPaid) > 0.01) {
+      s.dueDate = next.toISOString().split('T')[0];
+      next.setMonth(next.getMonth() + 1);
+      moved++;
+    }
+  });
+  const maturity = sched[sched.length - 1].dueDate;
+  const { error } = await db.from('loans').update({ schedule: sched, maturity_date: maturity }).eq('id', loanId);
+  if (error) { showAlert('Could not reschedule: ' + error.message); return; }
+  loan.maturityDate = maturity;
+  await logAudit('reschedule', 'loan', loanId, { newFirstDue: dateV, reason, instalmentsMoved: moved });
+  await saveTable('loans');
+  closeModal();
+  showToast(`${moved} instalment(s) rescheduled`);
+  openLoanDetail(loanId);
+}
+
+// =====================================================
 // DISBURSEMENT RECORDING
 // Money leaving the business is an event worth its own record: when,
 // how (channel), reference, and by whom.
@@ -2160,6 +2335,8 @@ function openLoanDetail(loanId) {
             ${!loan.signedAt ? `<button onclick="generateSignatureLink('${loan.id}')" class="text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg font-medium">Send for e-Signature</button>` : ''}
             ${loan.signedAt && !loan.disbursedAt && can('update', 'loans') ? `<button onclick="openDisbursementForm('${loan.id}')" class="btn-success text-sm">Record Payout</button>` : ''}
             ${loan.status === 'Active' && outstanding > 0.01 && can('create', 'loans') ? `<button onclick="openTopUpForm('${loan.id}')" class="btn-warning text-sm">Top Up...</button>` : ''}
+            ${loan.status === 'Active' && outstanding > 0.01 ? `<button onclick="openSettlementQuote('${loan.id}')" class="btn-secondary text-sm">Settlement Quote</button>` : ''}
+            ${loan.status === 'Active' && outstanding > 0.01 && can('update', 'loans') ? `<button onclick="openRescheduleForm('${loan.id}')" class="btn-secondary text-sm">Reschedule...</button>` : ''}
             ${canEdit ? `<button onclick="openLoanForm('${loan.id}')" class="btn-secondary text-sm">Edit</button>` : ''}
             ${canDel ? `<button onclick="deleteLoan('${loan.id}')" class="text-sm text-red-600 hover:text-red-700 px-3 py-2 rounded-lg hover:bg-red-50 font-medium">Delete</button>` : ''}
             <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600 ml-2">✕</button>
@@ -7646,6 +7823,14 @@ function renderApplyPage() {
         <div class="text-sm text-slate-600">Complete the form below. Uploading clear photos of your documents is optional, but helps us process your application faster. We will review your application and contact you on WhatsApp.</div>
       </div>
 
+      <div id="apply-steps" class="flex items-center justify-center gap-1 mb-4" aria-label="Application progress">
+        <span data-step="1" class="text-xs font-medium px-3 py-1.5 rounded-full bg-white border border-slate-200 text-slate-500">1 · Your details</span>
+        <span class="text-slate-300">—</span>
+        <span data-step="2" class="text-xs font-medium px-3 py-1.5 rounded-full bg-white border border-slate-200 text-slate-500">2 · Documents</span>
+        <span class="text-slate-300">—</span>
+        <span data-step="3" class="text-xs font-medium px-3 py-1.5 rounded-full bg-white border border-slate-200 text-slate-500">3 · Submit</span>
+      </div>
+
       <div class="bg-white rounded-xl border border-slate-200 p-5 mb-4 space-y-4">
         <h2 class="font-semibold text-slate-900">Your Details</h2>
         <div>
@@ -7820,6 +8005,21 @@ function updateApplySubmitState() {
   if (!consent) problems.push('consent tick');
   btn.disabled = problems.length > 0;
   if (hint) hint.textContent = problems.length ? 'Still needed: ' + problems.join('; ') : 'Ready to submit ✓';
+  // Progress chips
+  const detailsOk = name && idNum && phone && !repayProblem && disbMethod && repayMethod;
+  const docsAdded = Object.values(window._applyUploads || {}).some(arr => (arr || []).length > 0);
+  const setStep = (n, done) => {
+    const el = document.querySelector(`#apply-steps [data-step="${n}"]`);
+    if (!el) return;
+    el.className = 'text-xs font-medium px-3 py-1.5 rounded-full border ' + (done
+      ? 'bg-green-50 border-green-300 text-green-800'
+      : 'bg-white border-slate-200 text-slate-500');
+    const base = el.textContent.replace('✓ ', '');
+    el.textContent = done ? '✓ ' + base : base;
+  };
+  setStep(1, detailsOk);
+  setStep(2, docsAdded);
+  setStep(3, detailsOk && consent);
 }
 
 async function submitApplication() {
