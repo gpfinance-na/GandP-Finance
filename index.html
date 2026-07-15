@@ -27,6 +27,21 @@
   .toast-leaving { opacity: 0; transform: translateY(8px); transition: opacity 0.25s, transform 0.25s; }
   @keyframes toast-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
   @media (prefers-reduced-motion: reduce) { .toast { animation: none; } }
+  .btn-success { background: #15803d; color: white; padding: 8px 16px; border-radius: 8px; font-weight: 500; }
+  .btn-success:hover { background: #166534; }
+  .btn-danger { background: #dc2626; color: white; padding: 8px 16px; border-radius: 8px; font-weight: 500; }
+  .btn-danger:hover { background: #b91c1c; }
+  .btn-warning { background: #d97706; color: white; padding: 8px 16px; border-radius: 8px; font-weight: 500; }
+  .btn-warning:hover { background: #b45309; }
+  .th-sort { background: none; border: none; font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit; cursor: pointer; padding: 0; display: inline-flex; gap: 4px; align-items: center; }
+  .th-sort:hover { color: #1e40af; }
+  .mobile-cards { display: none; }
+  @media (max-width: 640px) {
+    table.hide-sm, .card table.hide-sm { display: none !important; }
+    .mobile-cards { display: block; }
+  }
+  .m-card { width: 100%; text-align: left; background: white; border: none; border-bottom: 1px solid #f1f5f9; padding: 12px 16px; cursor: pointer; display: block; }
+  .m-card:hover { background: #f8fafc; }
   .field-error { border-color: #dc2626 !important; box-shadow: 0 0 0 1px #dc2626 !important; }
   .field-error-msg { color: #b91c1c; font-size: 12px; margin-top: 4px; }
   .skip-link { position: absolute; left: -9999px; top: 8px; z-index: 200; background: #1e40af; color: #fff; padding: 8px 16px; border-radius: 8px; font-weight: 600; }
@@ -1338,6 +1353,41 @@ function renderDashboard() {
 // LOANS
 // =====================================================
 // -----------------------------------------------------
+// COLUMN SORTING — click a header to sort, click again to reverse.
+// -----------------------------------------------------
+const TABLE_SORT_ACCESSORS = {
+  loans: { ref: l => loanRef(l), client: l => clientName(l.clientId), principal: l => l.principal || 0, outstanding: l => loanOutstanding(l.id), maturity: l => l.maturityDate || '', status: l => isOverdue(l) ? 'Overdue' : (l.status || '') },
+  clients: { name: c => c.fullName || '', phone: c => c.phone || '', status: c => c.status || '' },
+  payments: { ref: p => paymentRef(p), date: p => p.paymentDate || '', client: p => clientName(p.clientId), amount: p => p.amount || 0, method: p => p.method || '' },
+  applications: { date: a => a.submittedAt || '', ref: a => applicationRef(a), name: a => a.fullName || '', amount: a => a.amountRequested || 0, repay: a => applicationRepayDate(a) || '', status: a => a.status || '' }
+};
+
+function sortRows(key, rows) {
+  const s = state.tableSort && state.tableSort[key];
+  const acc = s && TABLE_SORT_ACCESSORS[key] && TABLE_SORT_ACCESSORS[key][s.col];
+  if (!acc) return rows;
+  const sorted = [...rows].sort((a, b) => {
+    const va = acc(a), vb = acc(b);
+    if (typeof va === 'number' && typeof vb === 'number') return va - vb;
+    return String(va).localeCompare(String(vb));
+  });
+  return s.dir === 'desc' ? sorted.reverse() : sorted;
+}
+
+function toggleSort(key, col) {
+  if (!state.tableSort) state.tableSort = {};
+  const s = state.tableSort[key];
+  state.tableSort[key] = { col, dir: (s && s.col === col && s.dir === 'asc') ? 'desc' : 'asc' };
+  render();
+}
+
+function thSort(key, col, label) {
+  const s = state.tableSort && state.tableSort[key];
+  const arrow = s && s.col === col ? (s.dir === 'asc' ? ' ↑' : ' ↓') : '';
+  return `<th><button type="button" class="th-sort" onclick="toggleSort('${key}', '${col}')" aria-label="Sort by ${label}">${label}${arrow}</button></th>`;
+}
+
+// -----------------------------------------------------
 // LIST PAGINATION — keeps big tables fast and scannable.
 // -----------------------------------------------------
 function paginate(key, rows, pageSize = 50) {
@@ -1422,13 +1472,13 @@ function renderLoans() {
           <p class="text-sm text-slate-500 mt-1">${state.loans.length === 0 ? 'Create your first loan to get started' : 'Try adjusting search or filters'}</p>
           ${state.loans.length === 0 && can('create','loans') ? '<button onclick="openLoanForm()" class="btn-primary mt-4">Create Loan</button>' : ''}
         </div>` : `
-        <table>
+        <table class="hide-sm">
           <thead><tr>
             ${can('update','loans') ? `<th style="width:32px"><input type="checkbox" ${allOnPageSelected ? 'checked' : ''} onchange="toggleSelectAllLoans(this.checked, ${JSON.stringify(filtered.map(l=>l.id)).replace(/"/g,'&quot;')})"></th>` : ''}
-            <th>Loan Ref</th><th>Client</th><th>Principal</th><th>Outstanding</th><th>Maturity</th><th>Status</th>
+            ${thSort('loans','ref','Loan Ref')}${thSort('loans','client','Client')}${thSort('loans','principal','Principal')}${thSort('loans','outstanding','Outstanding')}${thSort('loans','maturity','Maturity')}${thSort('loans','status','Status')}
           </tr></thead>
           <tbody>
-            ${(window._pgLoans = paginate('loans', filtered)).rows.map(l => {
+            ${(window._pgLoans = paginate('loans', sortRows('loans', filtered))).rows.map(l => {
               const overdue = isOverdue(l);
               const status = overdue ? 'Overdue' : l.status;
               const checked = state.bulkSelection.loans.has(l.id);
@@ -1444,7 +1494,7 @@ function renderLoans() {
                 </tr>`;
             }).join('')}
           </tbody>
-        </table>${pagerHtml('loans', window._pgLoans)}`}
+        </table><div class="mobile-cards">${window._pgLoans.rows.map(l => { const st = isOverdue(l) ? 'Overdue' : l.status; return `<button class="m-card" onclick="openLoanDetail('${l.id}')"><div class="flex justify-between items-center"><span class="font-medium text-slate-900">${escapeHtml(clientName(l.clientId))}</span><span class="badge badge-${st.toLowerCase()}">${st}</span></div><div class="text-xs text-slate-500 mt-0.5">${loanRef(l)} · matures ${fmtDate(l.maturityDate)}</div><div class="flex justify-between text-sm mt-1"><span class="text-slate-600">${fmt(l.principal)}</span><span class="font-medium">${fmt(loanOutstanding(l.id))} owed</span></div></button>`; }).join('')}</div>${pagerHtml('loans', window._pgLoans)}`}
     </div>
   `;
 }
@@ -2108,8 +2158,8 @@ function openLoanDetail(loanId) {
             <button onclick="downloadLoanAgreement('${loan.id}')" class="btn-secondary text-sm flex items-center gap-1"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>${loan.signedAt ? 'Signed Agreement PDF' : 'Agreement PDF'}</button>
             <button onclick="sendLoanApprovalWhatsApp('${loan.id}')" class="text-sm bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-lg font-medium flex items-center gap-1"><svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>Approval Message</button>
             ${!loan.signedAt ? `<button onclick="generateSignatureLink('${loan.id}')" class="text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg font-medium">Send for e-Signature</button>` : ''}
-            ${loan.signedAt && !loan.disbursedAt && can('update', 'loans') ? `<button onclick="openDisbursementForm('${loan.id}')" class="text-sm bg-green-700 hover:bg-green-800 text-white px-3 py-2 rounded-lg font-medium">Record Payout</button>` : ''}
-            ${loan.status === 'Active' && outstanding > 0.01 && can('create', 'loans') ? `<button onclick="openTopUpForm('${loan.id}')" class="text-sm bg-amber-500 hover:bg-amber-600 text-white px-3 py-2 rounded-lg font-medium">Top Up...</button>` : ''}
+            ${loan.signedAt && !loan.disbursedAt && can('update', 'loans') ? `<button onclick="openDisbursementForm('${loan.id}')" class="btn-success text-sm">Record Payout</button>` : ''}
+            ${loan.status === 'Active' && outstanding > 0.01 && can('create', 'loans') ? `<button onclick="openTopUpForm('${loan.id}')" class="btn-warning text-sm">Top Up...</button>` : ''}
             ${canEdit ? `<button onclick="openLoanForm('${loan.id}')" class="btn-secondary text-sm">Edit</button>` : ''}
             ${canDel ? `<button onclick="deleteLoan('${loan.id}')" class="text-sm text-red-600 hover:text-red-700 px-3 py-2 rounded-lg hover:bg-red-50 font-medium">Delete</button>` : ''}
             <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600 ml-2">✕</button>
@@ -2238,16 +2288,16 @@ function renderClients() {
           <p class="text-sm text-slate-500 mt-1">${state.clients.length === 0 ? 'Register your first client to start lending' : 'Try a different search term'}</p>
           ${state.clients.length === 0 && can('create','clients') ? '<button onclick="openClientForm()" class="btn-primary mt-4">Add Client</button>' : ''}
         </div>` : `
-        <table>
-          <thead><tr><th>Client Ref</th><th>Full Name</th><th>Phone</th><th>Active Loans</th><th>Outstanding</th><th>Status</th></tr></thead>
+        <table class="hide-sm">
+          <thead><tr><th>Client Ref</th>${thSort('clients','name','Full Name')}${thSort('clients','phone','Phone')}<th>Active Loans</th><th>Outstanding</th>${thSort('clients','status','Status')}</tr></thead>
           <tbody>
-            ${(window._pgClients = paginate('clients', filtered)).rows.map(c => {
+            ${(window._pgClients = paginate('clients', sortRows('clients', filtered))).rows.map(c => {
               const loans = state.loans.filter(l => l.clientId === c.id && l.status === 'Active');
               const outstanding = loans.reduce((s, l) => s + loanOutstanding(l.id), 0);
               return `<tr class="clickable" onclick="openClientDetail('${c.id}')"><td class="font-mono text-xs">${clientRef(c)}</td><td class="font-medium">${escapeHtml(c.fullName)}</td><td>${escapeHtml(c.phone)}</td><td>${loans.length}</td><td class="font-medium">${fmt(outstanding)}</td><td><span class="badge badge-${(c.status||'Active').toLowerCase()}">${c.status||'Active'}</span></td></tr>`;
             }).join('')}
           </tbody>
-        </table>${pagerHtml('clients', window._pgClients)}`}
+        </table><div class="mobile-cards">${window._pgClients.rows.map(c => `<button class="m-card" onclick="openClientDetail('${c.id}')"><div class="flex justify-between items-center"><span class="font-medium text-slate-900">${escapeHtml(c.fullName)}</span><span class="badge badge-${(c.status || 'active').toLowerCase()}">${c.status || 'Active'}</span></div><div class="text-xs text-slate-500 mt-0.5">${escapeHtml(c.phone || '')}${c.idNumber ? ' · ID ' + escapeHtml(c.idNumber) : ''}</div></button>`).join('')}</div>${pagerHtml('clients', window._pgClients)}`}
     </div>
   `;
 }
@@ -2519,12 +2569,12 @@ function renderPayments() {
           <p class="text-sm text-slate-500 mt-1">${state.payments.length === 0 ? 'Record a payment against an active loan' : 'Try adjusting search or filters'}</p>
           ${state.payments.length === 0 && can('create','payments') ? '<button onclick="openPaymentForm()" class="btn-primary mt-4">Record Payment</button>' : ''}
         </div>` : `
-        <table>
-          <thead><tr><th>Payment Ref</th><th>Date</th><th>Client</th><th>Loan Ref</th><th>Amount</th><th>Method</th><th>Receipt</th><th class="text-right">Actions</th></tr></thead>
+        <table class="hide-sm">
+          <thead><tr>${thSort('payments','ref','Payment Ref')}${thSort('payments','date','Date')}${thSort('payments','client','Client')}<th>Loan Ref</th>${thSort('payments','amount','Amount')}${thSort('payments','method','Method')}<th>Receipt</th><th class="text-right">Actions</th></tr></thead>
           <tbody>
-            ${(window._pgPayments = paginate('payments', sorted)).rows.map(p => `<tr><td class="font-mono text-xs">${paymentRef(p)}</td><td>${fmtDate(p.paymentDate)}</td><td class="font-medium">${escapeHtml(clientName(p.clientId))}</td><td class="font-mono text-xs">${loanRefById(p.loanId)}</td><td class="font-medium text-green-700">${fmt(p.amount)}</td><td>${escapeHtml(p.method)}</td><td class="font-mono text-xs">${escapeHtml(p.receiptNumber || '—')}</td><td class="text-right whitespace-nowrap"><button onclick="downloadReceipt('${p.id}')" class="text-xs text-blue-700 hover:underline mr-3" title="Receipt PDF">Receipt</button><button onclick="shareReceiptWhatsApp('${p.id}')" class="text-xs text-green-700 hover:underline mr-3" title="WhatsApp">WhatsApp</button>${can('update','payments')?`<button onclick="openPaymentForm(null,'${p.id}')" class="text-xs text-slate-600 hover:underline mr-3">Edit</button>`:''}${can('delete','payments')?`<button onclick="deletePayment('${p.id}')" class="text-xs text-red-600 hover:underline">Delete</button>`:''}</td></tr>`).join('')}
+            ${(window._pgPayments = paginate('payments', sortRows('payments', sorted))).rows.map(p => `<tr><td class="font-mono text-xs">${paymentRef(p)}</td><td>${fmtDate(p.paymentDate)}</td><td class="font-medium">${escapeHtml(clientName(p.clientId))}</td><td class="font-mono text-xs">${loanRefById(p.loanId)}</td><td class="font-medium text-green-700">${fmt(p.amount)}</td><td>${escapeHtml(p.method)}</td><td class="font-mono text-xs">${escapeHtml(p.receiptNumber || '—')}</td><td class="text-right whitespace-nowrap"><button onclick="downloadReceipt('${p.id}')" class="text-xs text-blue-700 hover:underline mr-3" title="Receipt PDF">Receipt</button><button onclick="shareReceiptWhatsApp('${p.id}')" class="text-xs text-green-700 hover:underline mr-3" title="WhatsApp">WhatsApp</button>${can('update','payments')?`<button onclick="openPaymentForm(null,'${p.id}')" class="text-xs text-slate-600 hover:underline mr-3">Edit</button>`:''}${can('delete','payments')?`<button onclick="deletePayment('${p.id}')" class="text-xs text-red-600 hover:underline">Delete</button>`:''}</td></tr>`).join('')}
           </tbody>
-        </table>${pagerHtml('payments', window._pgPayments)}`}
+        </table><div class="mobile-cards">${window._pgPayments.rows.map(p => `<button class="m-card" onclick="downloadReceipt('${p.id}')"><div class="flex justify-between items-center"><span class="font-medium text-slate-900">${escapeHtml(clientName(p.clientId))}</span><span class="font-medium text-green-700">${fmt(p.amount)}</span></div><div class="text-xs text-slate-500 mt-0.5">${fmtDate(p.paymentDate)} · ${escapeHtml(p.method)} · ${loanRefById(p.loanId)} · tap for receipt</div></button>`).join('')}</div>${pagerHtml('payments', window._pgPayments)}`}
     </div>
   `;
 }
@@ -7943,12 +7993,12 @@ function renderApplications() {
           </div>
         ` : `
         <div class="overflow-x-auto">
-          <table class="w-full text-sm">
+          <table class="w-full text-sm hide-sm">
             <thead><tr class="text-left text-xs text-slate-500 uppercase border-b border-slate-200">
-              <th class="px-4 py-3">Date</th><th class="px-4 py-3">Ref</th><th class="px-4 py-3">Applicant</th><th class="px-4 py-3">ID Number</th><th class="px-4 py-3">WhatsApp</th><th class="px-4 py-3">Requested</th><th class="px-4 py-3">Repay Date</th><th class="px-4 py-3">Status</th><th class="px-4 py-3"></th>
+              <th class="px-4 py-3"><button type="button" class="th-sort" onclick="toggleSort('applications','date')">Date${(state.tableSort?.applications?.col==='date')?(state.tableSort.applications.dir==='asc'?' ↑':' ↓'):''}</button></th><th class="px-4 py-3">Ref</th><th class="px-4 py-3"><button type="button" class="th-sort" onclick="toggleSort('applications','name')">Applicant${(state.tableSort?.applications?.col==='name')?(state.tableSort.applications.dir==='asc'?' ↑':' ↓'):''}</button></th><th class="px-4 py-3">ID Number</th><th class="px-4 py-3">WhatsApp</th><th class="px-4 py-3"><button type="button" class="th-sort" onclick="toggleSort('applications','amount')">Requested${(state.tableSort?.applications?.col==='amount')?(state.tableSort.applications.dir==='asc'?' ↑':' ↓'):''}</button></th><th class="px-4 py-3"><button type="button" class="th-sort" onclick="toggleSort('applications','repay')">Repay Date${(state.tableSort?.applications?.col==='repay')?(state.tableSort.applications.dir==='asc'?' ↑':' ↓'):''}</button></th><th class="px-4 py-3"><button type="button" class="th-sort" onclick="toggleSort('applications','status')">Status${(state.tableSort?.applications?.col==='status')?(state.tableSort.applications.dir==='asc'?' ↑':' ↓'):''}</button></th><th class="px-4 py-3"></th>
             </tr></thead>
             <tbody>
-              ${(window._pgApps = paginate('applications', filtered)).rows.map(a => `
+              ${(window._pgApps = paginate('applications', sortRows('applications', filtered))).rows.map(a => `
                 <tr class="border-b border-slate-100 hover:bg-slate-50">
                   <td class="px-4 py-3 whitespace-nowrap">${fmtDate(a.submittedAt)}</td>
                   <td class="px-4 py-3 font-mono text-xs">${applicationRef(a)}</td>
@@ -7962,7 +8012,7 @@ function renderApplications() {
                 </tr>
               `).join('')}
             </tbody>
-          </table>${pagerHtml('applications', window._pgApps)}
+          </table><div class="mobile-cards">${window._pgApps.rows.map(a => `<button class="m-card" onclick="openApplicationReview('${a.id}')"><div class="flex justify-between items-center"><span class="font-medium text-slate-900">${escapeHtml(a.fullName)}</span>${statusBadge(a.status)}</div><div class="text-xs text-slate-500 mt-0.5">${fmtDate(a.submittedAt)} · ${a.amountRequested ? fmt(a.amountRequested) : '—'} · repay ${applicationRepayDate(a) ? fmtDate(applicationRepayDate(a)) : '—'}</div></button>`).join('')}</div>${pagerHtml('applications', window._pgApps)}
         </div>`}
       </div>
     </div>
