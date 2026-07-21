@@ -1400,7 +1400,7 @@ function renderDashboard() {
         <div class="text-3xl font-bold text-amber-700 mt-2">${pendingApps}</div>
         <div class="text-xs text-slate-500 mt-1">tap to review</div>
       </button>
-      <button onclick="navigate('loans')" class="card p-5 text-left hover:border-green-400" style="cursor:pointer; border-left:4px solid ${awaitingPayout ? '#15803d' : '#e2e8f0'}">
+      <button onclick="state.filters.loans.awaitingPayout = true; state.filters.loans.status = 'all'; state.filters.loans.search = ''; navigate('loans')" class="card p-5 text-left hover:border-green-400" style="cursor:pointer; border-left:4px solid ${awaitingPayout ? '#15803d' : '#e2e8f0'}">
         <div class="text-xs font-medium text-slate-500 uppercase">Awaiting Payout</div>
         <div class="text-3xl font-bold text-green-700 mt-2">${awaitingPayout}</div>
         <div class="text-xs text-slate-500 mt-1">signed, money not yet sent</div>
@@ -1570,6 +1570,7 @@ function renderLoans() {
     else filtered = filtered.filter(l => l.status === f.status);
   }
   if (f.officer !== 'all') filtered = filtered.filter(l => l.createdBy === f.officer);
+  if (f.awaitingPayout) filtered = filtered.filter(l => l.signedAt && !l.disbursedAt && l.status === 'Active');
 
   const selectedCount = state.bulkSelection.loans.size;
   const allOnPageSelected = filtered.length > 0 && filtered.every(l => state.bulkSelection.loans.has(l.id));
@@ -1605,7 +1606,8 @@ function renderLoans() {
           ${officers.map(o => `<option value="${o.id}" ${f.officer===o.id?'selected':''}>${escapeHtml(o.fullName)}</option>`).join('')}
         </select>` : '<div></div>'}
       </div>
-      ${(f.search || f.status !== 'all' || f.officer !== 'all') ? `<div class="mt-3"><button onclick="state.filters.loans={search:'',status:'all',officer:'all'}; render();" class="text-xs text-blue-700 hover:underline">Clear filters</button></div>` : ''}
+      ${f.awaitingPayout ? `<div class="mt-3"><span class="text-xs bg-green-50 border border-green-300 text-green-800 rounded-full px-3 py-1.5 font-medium">Showing loans awaiting payout <button onclick="state.filters.loans.awaitingPayout=false; render();" class="ml-1 font-bold" aria-label="Clear awaiting payout filter">✕</button></span></div>` : ''}
+      ${(f.search || f.status !== 'all' || f.officer !== 'all' || f.awaitingPayout) ? `<div class="mt-3"><button onclick="state.filters.loans={search:'',status:'all',officer:'all'}; render();" class="text-xs text-blue-700 hover:underline">Clear filters</button></div>` : ''}
     </div>
     <div class="card overflow-hidden">
       ${filtered.length === 0 ? `
@@ -1632,11 +1634,11 @@ function renderLoans() {
                   <td onclick="openLoanDetail('${l.id}')">${fmt(l.principal)}</td>
                   <td class="font-medium" onclick="openLoanDetail('${l.id}')">${fmt(loanOutstanding(l.id))}</td>
                   <td onclick="openLoanDetail('${l.id}')">${fmtDate(l.maturityDate)}</td>
-                  <td onclick="openLoanDetail('${l.id}')"><span class="badge badge-${status.toLowerCase()}">${status}</span></td>
+                  <td onclick="openLoanDetail('${l.id}')"><span class="badge badge-${status.toLowerCase()}">${status}</span>${l.signedAt && !l.disbursedAt && l.status === 'Active' ? ' <span style="font-size:10px; background:#f0fdf4; color:#15803d; border:1px solid #bbf7d0; border-radius:4px; padding:1px 5px; white-space:nowrap;">⏳ payout</span>' : ''}</td>
                 </tr>`;
             }).join('')}
           </tbody>
-        </table><div class="mobile-cards">${window._pgLoans.rows.map(l => { const st = isOverdue(l) ? 'Overdue' : l.status; return `<button class="m-card" onclick="openLoanDetail('${l.id}')"><div class="flex justify-between items-center"><span class="font-medium text-slate-900">${escapeHtml(clientName(l.clientId))}</span><span class="badge badge-${st.toLowerCase()}">${st}</span></div><div class="text-xs text-slate-500 mt-0.5">${loanRef(l)} · matures ${fmtDate(l.maturityDate)}</div><div class="flex justify-between text-sm mt-1"><span class="text-slate-600">${fmt(l.principal)}</span><span class="font-medium">${fmt(loanOutstanding(l.id))} owed</span></div></button>`; }).join('')}</div>${pagerHtml('loans', window._pgLoans)}`}
+        </table><div class="mobile-cards">${window._pgLoans.rows.map(l => { const st = isOverdue(l) ? 'Overdue' : l.status; return `<button class="m-card" onclick="openLoanDetail('${l.id}')"><div class="flex justify-between items-center"><span class="font-medium text-slate-900">${escapeHtml(clientName(l.clientId))}</span><span class="badge badge-${st.toLowerCase()}">${st}</span></div><div class="text-xs text-slate-500 mt-0.5">${loanRef(l)} · matures ${fmtDate(l.maturityDate)}${l.signedAt && !l.disbursedAt && l.status === 'Active' ? ' · ⏳ awaiting payout' : ''}</div><div class="flex justify-between text-sm mt-1"><span class="text-slate-600">${fmt(l.principal)}</span><span class="font-medium">${fmt(loanOutstanding(l.id))} owed</span></div></button>`; }).join('')}</div>${pagerHtml('loans', window._pgLoans)}`}
     </div>
   `;
 }
