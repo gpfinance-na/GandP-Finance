@@ -5088,6 +5088,7 @@ function renderReminders() {
   const today_ = today();
   const upcoming = []; // due within next 7 days, not yet due
   const overdue = []; // already overdue
+  const dueTodayList = []; // due today — not late yet
 
   state.loans.forEach(l => {
     if (l.status === 'Completed' || l.status === 'Written Off') return;
@@ -5097,7 +5098,9 @@ function renderReminders() {
       if (s.status === 'Paid' || (s.amountDue - s.amountPaid) <= 0.01) return;
       const balance = s.amountDue - s.amountPaid;
       const days = daysBetween(s.dueDate, today_);
-      if (days >= 0 && days <= 120) {
+      if (days === 0) {
+        dueTodayList.push({ loan: l, client: c, inst: s, balance });
+      } else if (days >= 1 && days <= 120) {
         overdue.push({ loan: l, client: c, inst: s, daysOverdue: days, balance });
       } else if (days < 0 && days >= -7) {
         upcoming.push({ loan: l, client: c, inst: s, daysUntil: -days, balance });
@@ -5136,6 +5139,11 @@ function renderReminders() {
 
   const totalOverdueAmount = overdue.reduce((s,x) => s+x.balance, 0);
   const totalUpcomingAmount = upcoming.reduce((s,x) => s+x.balance, 0);
+  const totalDueToday = dueTodayList.reduce((s,x) => s+x.balance, 0);
+  const buildDueTodayMsg = (item) => {
+    const co = state.settings.companyName || 'GPL Finance';
+    return `Hello ${item.client.fullName.split(' ')[0]},\n\nFriendly reminder from ${co}: your loan instalment is due TODAY.\n\nLoan: ${loanRef(item.loan)}\nAmount Due: ${fmt(item.balance)}\n\nPlease make your payment before end of day. If you have already paid, thank you — you can ignore this message.\n\nThank you.`;
+  };
 
   return `
     <div class="mb-6">
@@ -5143,7 +5151,12 @@ function renderReminders() {
       <p class="text-slate-500 text-sm mt-1">Send WhatsApp reminders for upcoming and overdue payments</p>
     </div>
 
-    <div class="grid grid-cols-2 gap-4 mb-6">
+    <div class="grid grid-cols-3 gap-4 mb-6 kpi-grid">
+      <div class="card p-5 border-l-4" style="border-left-color:#1e40af">
+        <div class="text-xs font-medium text-blue-700 uppercase">Due Today</div>
+        <div class="text-3xl font-bold text-blue-700 mt-2">${dueTodayList.length}</div>
+        <div class="text-sm text-slate-600 mt-1">${fmt(totalDueToday)} expected today</div>
+      </div>
       <div class="card p-5 border-l-4" style="border-left-color:#dc2626">
         <div class="text-xs font-medium text-red-700 uppercase">Overdue Reminders</div>
         <div class="text-3xl font-bold text-red-700 mt-2">${overdue.length}</div>
@@ -5155,6 +5168,26 @@ function renderReminders() {
         <div class="text-sm text-slate-600 mt-1">${fmt(totalUpcomingAmount)} expected</div>
       </div>
     </div>
+
+    ${dueTodayList.length ? `
+    <div class="card overflow-hidden mb-6">
+      <div class="px-6 py-3 border-b border-slate-200 bg-blue-50">
+        <h3 class="font-semibold text-blue-900">Due Today</h3>
+        <p class="text-xs text-blue-800 mt-1">Payday reminders — these are on time, not late. A friendly nudge today prevents tomorrow's arrears.</p>
+      </div>
+      <table>
+        <thead><tr><th>Client</th><th>Phone</th><th>Loan Ref</th><th>Amount Due</th><th class="text-right">Action</th></tr></thead>
+        <tbody>
+          ${dueTodayList.map(item => `<tr>
+            <td class="font-medium">${escapeHtml(item.client.fullName)}</td>
+            <td>${escapeHtml(item.client.phone)}</td>
+            <td class="font-mono text-xs">${loanRef(item.loan)}</td>
+            <td class="font-medium">${fmt(item.balance)}</td>
+            <td class="text-right"><button onclick='sendReminderWhatsApp(${JSON.stringify(item.client.phone)}, ${JSON.stringify(buildDueTodayMsg(item))})' class="text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded font-medium">WhatsApp</button></td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>` : ''}
 
     <div class="card overflow-hidden mb-6">
       <div class="px-6 py-3 border-b border-slate-200 bg-red-50">
